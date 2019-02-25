@@ -63,7 +63,9 @@ class Knn:
         plt.ylabel("Accuracy", fontsize=14)
         plt.show()
         
-    def decision_boundry(self, X, y, n_neighbors, step=0.2, figsize=(14, 5)):
+    def decision_boundry(self, X, y, n_neighbors, n_targets=2, step=0.2, 
+                         figsize=(14, 5), weights=['uniform', 'distance'],
+                         weight_names=None):
         '''Plotting decision boundries.'''
         
         h = step  # step size in the mesh
@@ -74,9 +76,9 @@ class Knn:
         
         plt.figure(figsize=figsize)                            
                                     
-        for i, weights in enumerate(['uniform', 'distance']):
+        for i, weight in enumerate(weights):
             # we create an instance of Neighbours Classifier and fit the data.
-            clf = KNeighborsClassifier(n_neighbors=n_neighbors, weights=weights)
+            clf = KNeighborsClassifier(n_neighbors=n_neighbors, weights=weight)
             clf.fit(X, y)
         
             # Plot the decision boundary. For that, we will assign a color to each
@@ -89,15 +91,20 @@ class Knn:
         
             # Put the result into a color plot
             Z = Z.reshape(xx.shape)
-            plt.subplot(1, 2, i+1)
-            plt.pcolormesh(xx, yy, Z, cmap=cmap_light)
+            plt.subplot(1, len(weights), i+1)
+            plt.pcolormesh(xx, yy, Z, cmap='gist_ncar')
         
             # Plot also the training points
-            plt.scatter(X[:, 0], X[:, 1], c=y, cmap=cmap_bold,
+            plt.scatter(X[:, 0], X[:, 1], c=y, cmap='viridis',
                         edgecolor='k', s=20)
             plt.xlim(xx.min(), xx.max())
             plt.ylim(yy.min(), yy.max())
-            plt.title("3-Class classification (k = %i, weights = '%s')"
-                      % (n_neighbors, weights))
+        
+            if weight_names is not None:
+                plt.title("%i-Class classification (k = %i, weights = '%s')" 
+                          % (n_targets, n_neighbors, weight_names[i]))
+            else:
+                plt.title("%i-Class classification (k = %i, weights = '%s')" 
+                          % (n_targets, n_neighbors, weight))
         
         plt.show()
