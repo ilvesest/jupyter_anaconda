@@ -5,10 +5,36 @@ Spyder Editor
 This is a file where I (Tonu) have stored some of my own functions. 
 """
 
-#imports:
+### DECORATORS ###
 
+def time_it(function):
+    """Timing function execution duration.
+    
+    Parameters:
+        function (callable): function to be decorated.
+    
+    Returns (str): Elapsed time with appropriate prefix.
+    """
+    
+    from time import time
+    import math
+    
+    def wrapper(*args, **kw):
+        before = time()
+        return_value = function(*args, **kw)
+        after = time()
+        
+        # converting to appropriate second prefix
+        units = ['s', 'ms', 'μs', 'ns', 'ps']
+        n = float(after-before)
+        index = max(0, min(len(units) - 1, 
+                           int(abs(math.floor(0 if n == 0 else math.log10(abs(n)) / 3)))))
+        print('\nElapsed time: {:.2f} {}'.format(n * 10 ** (index * 3), units[index]))
+        return return_value
+    return wrapper
 
-#functions
+### FUNCTIONS ###
+
 def to_file(filename, data, extension=''):
     """Writes data to a file.
     
