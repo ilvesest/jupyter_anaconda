@@ -3,14 +3,17 @@
 Python file for accessing custom made bokeh plots.
 """
 import pandas as pd
+import numpy as np
+from scipy.stats import norm, linregress
+ 
 
 from bokeh.plotting import figure, show
 from bokeh.models import ColumnDataSource, HoverTool, BoxSelectTool, \
-    NumeralTickFormatter
+    NumeralTickFormatter, Range1d, LinearAxis
 from bokeh.palettes import Category20
 
 ### SCATTER PLOT ###
-def scatter(df, x, y, label=''):
+def scatter(df, x, y, reg=False):
     '''Plots bokeh scatter plot.
     Parameters
     ----------
@@ -19,7 +22,13 @@ def scatter(df, x, y, label=''):
     x : str
          Key or column name for data in x-axis.
     y : str
-         Key or column name for data in y-axis.      
+         Key or column name for data in y-axis.
+    reg : bool
+        To plot regression line or not. Default False.
+    
+    Returns
+    -------
+    None
     '''
     
     #init the bokeh nativbe source object
@@ -29,9 +38,19 @@ def scatter(df, x, y, label=''):
     p = figure(plot_height=350)
     
     #create the glyphs on canvas
-    p.circle(x, y, size=10, color="navy", alpha=0.5, source=source,
-             hover_fill_color='red', selection_fill_color='red', legend_label=label)
+    circle = p.circle(x, y, size=10, color="navy", alpha=0.5, 
+                      source=source,hover_fill_color='red', 
+                      selection_fill_color='red')
     
+    #add regression fit
+    if reg == True:
+        #find slope, intercept, rvalue, pvalue, stderr of the regression line
+        slope, intercept, rvalue, pvalue, stderr = linregress(x=df[x], y=df[y])
+        
+        #plot regression fit
+        p.line(x=df[x], y=intercept + slope * df[x], color='red', alpha=0.35,
+               line_width=6, legend_label=r'r={}'.format(round(rvalue,2)))
+        
     #labels
     p.title.text = x + ' vs '+ y
     p.xaxis.axis_label = x
@@ -40,15 +59,9 @@ def scatter(df, x, y, label=''):
     #axis properties
     p.yaxis[0].formatter = NumeralTickFormatter(format='0,0')
     p.xaxis[0].formatter = NumeralTickFormatter(format='0,0')
-    
-    #legend properties
-    if label=='':
-        p.legend.visible = False
-    else:
-        pass
-    
+        
     #adding tools
-    hover = HoverTool(tooltips=[(y, "@"+y), (x, "@"+x)])
+    hover = HoverTool(renderers=[circle], tooltips=[(y, "@"+y), (x, "@"+x)])
     p.add_tools(hover, BoxSelectTool())
     
     # show the results
@@ -120,15 +133,18 @@ def box(df, x, y):
         colors = Category20[len(classes)]
     
     #create df of the data for the boxes
-    df = pd.DataFrame(data={'classes':classes, 'q_25':q_25[y], 'q_50':q_50[y],'q_75':q_75[y],
-                            'upper':upper[y], 'lower':lower[y], 'color':colors}).sort_values(
-                            by='q_50', ascending=False)
+    box_df = pd.DataFrame(data={'classes':classes, 'q_25':q_25[y], 'q_50':q_50[y],
+                                'q_75':q_75[y],'upper':upper[y], 'lower':lower[y], 
+                                'color':colors}).sort_values(by='q_50', ascending=False)
     
+    #force 'class' dtype to be str
+    box_df['classes'] = box_df['classes'].astype(str)                            
+                                
     #creating the bokeh source obj
-    source = ColumnDataSource(df)
+    source = ColumnDataSource(box_df)
     
     #creating the canvas
-    p = figure(plot_height=450, x_range=df.classes, 
+    p = figure(plot_height=450, x_range=box_df.classes, 
                title=x+" vs "+y, x_axis_label=x,
                y_axis_label=y)
     
@@ -171,5 +187,138 @@ def box(df, x, y):
     p.ygrid.visible = False
     p.yaxis[0].formatter = NumeralTickFormatter(format='0,0')
 
+    show(p)
+
+### HISTOGRAM ###
+def hist(df, feature, bins=50):
+    '''Plots bokeh histogram, PDF & CDF of a DF feature.
+    
+    Parameters
+    ----------
+    df : DataFrame
+        DF of the data.
+    feature :  str
+        Column name of the df.
+    bins : int
+        Number of bins to plot.
+        
+    Returns
+    -------
+    None
+    '''
+    
+    #not nan feature values
+    x = df[feature][df[feature].notna()].values 
+    
+    #Get the values for the histogram and bin edges (length(hist)+1)/
+    #Use density to plot pdf and cdf on the same plot.
+    hist, edges = np.histogram(x, bins=bins, density=True)
+    
+    ### PDF & CDF ##
+    
+    #find normal distribution parameters
+    mu, sigma = norm.fit(x)
+    xs = np.linspace(min(x), max(x)+1, len(x)) #x values to plot the line(s)
+    
+    pdf = norm.pdf(xs, loc=mu, scale=sigma) #probability distribution function
+    cdf = norm.cdf(xs, loc=mu, scale=sigma) #cumulative distribution function
+    
+    #data sources for cdf
+    source_cdf = ColumnDataSource({'cdf':cdf, 'xs':xs})
+    
+    #create the canvas
+    p1 = figure(title='Histogram, PDF & CDF', plot_height=400,
+                x_axis_label=feature, y_axis_label='Density')
+    
+    #add histogram
+    p1.quad(bottom=0, top=hist, left=edges[:-1], right=edges[1:],
+          fill_color='royalblue', line_color='black', alpha=0.7)
+    
+    #add pdf
+    p1.line(xs, pdf, line_color='red', line_width=5, 
+            alpha=0.5, legend_label='PDF')
+    
+    #set left-hand y-axis range
+    p1.y_range = Range1d(0, max(hist) + 0.05*max(hist))
+    
+    #setting the second y axis range name and range
+    p1.extra_y_ranges = {"cdf": Range1d(start=0, end=1.05)}
+    
+    #adding the second y axis to the plot and to the right.  
+    p1.add_layout(LinearAxis(y_range_name="cdf", axis_label='CDF'), 'right')
+
+    #add cdf with y range on the right
+    cdf_plot = p1.line('xs', 'cdf', source=source_cdf, alpha=0.8, 
+                       line_color='darkgoldenrod', line_width=5, 
+                       legend_label='CDF', y_range_name='cdf', name='cdf',
+                       hover_line_color='green')
+    
+    #hover tool
+    p1.add_tools(HoverTool(renderers=[cdf_plot], tooltips=[('Prob', '@cdf{0.00}')],
+                           mode='hline'))
+    
+    #figure properties
+    p1.xgrid.visible = False
+    
+    #hide entries when clocking ona legend
+    p1.legend.click_policy="hide"
+    
+    show(p1)
+
+### DOUBLE HISTOGRAM ###
+def double_hist(dfs, feature, names=['train', 'test'], bins=50):
+    """Plotting 2 histograms side by side.
+    
+    Parameters
+    ----------
+    dfs : list of DataFrames
+        List of DataFrames.
+    feature : str
+        Feature name in df.
+    names : list of strings
+        Names for the dataframes.
+    bins : int
+        Number of bins per histogram.
+        
+    Returns
+    -------
+    None
+    """
+    
+    import numpy as np
+    
+    #find joint max range of two dataframes
+    max_value = max([dfs[0][feature].max(), dfs[1][feature].max()]) 
+    min_value = min([dfs[0][feature].min(), dfs[1][feature].min()])
+    
+    #creating numpys histograms in the background so it
+    #divides the data into bins and returns bin edges
+    hist1, edges1 = np.histogram(dfs[0][feature], bins=bins, 
+                                 range=[min_value,max_value], density=True)
+    hist2, edges2 = np.histogram(dfs[1][feature], bins=bins, 
+                                 range=[min_value,max_value], density=True)
+    
+    #calculating step value for separating 
+    #two histogram bins side by side
+    step = (edges1[1]-edges1[0]) * 0.5
+    
+    # create the empty canvas
+    p = figure(plot_height = 400, x_axis_label=feature, y_axis_label='Density',
+               title = 'Histogram of ' + names[0] + ' & ' + names[1] + 'sets')
+    
+    # Add a quad glyph
+    p.quad(bottom=0, top=hist1, 
+           left=edges1[:-1], right=edges1[1:]-step, 
+           fill_color='blue', line_color='black', legend_label=names[0])
+    p.quad(bottom=0, top=hist2, 
+           left=edges2[:-1]+step, right=edges2[1:], 
+           fill_color='green', line_color='black', legend_label=names[1])
+    
+    #legend position
+    p.legend.location = "top_right"
+    
+    #figure props
+    p.xgrid.visible = False
+    
     show(p)
 
