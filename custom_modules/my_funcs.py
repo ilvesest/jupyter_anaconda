@@ -5,6 +5,11 @@ Spyder Editor
 This is a file where I (Tonu) have stored some of my own functions. 
 """
 
+import matplotlib.pyplot as plt
+import seaborn as sns
+import math
+from scipy import stats
+
 ### DECORATORS ###
 
 def time_it(function):
@@ -152,6 +157,126 @@ def eda_features(df, target, bins=50):
     for gen in wrapper():
         gen
     return discretes, continuous, to_drop
+
+def feat_corr(feature, target, df, figsize=(7,5)):
+    """Scatter plot with 1st and/or 2nd Order polynomial fit and
+    95% confidence interval.
+    
+    Parameters
+    ----------
+    feature : str
+        Feature name in the DF.
+    target : str
+        Target name in the DF.
+    df : DataFrame
+    figsize : tuple of len 2
+        Tuple of figure dimensions. Default (7,5).
+    
+    Retruns
+    -------
+    None"""
+    
+    r_value1 = stats.pearsonr(df[feature], df[target]) #1st order Pearson corr coef
+    r_value2 = stats.pearsonr(df[feature]**2, df[target]) #2nd order Pearson corr coef
+    
+    if abs(r_value2[0]) > abs(r_value1[0]): 
+    # plot y(x) with regression line and uncertainty area
+        plt.figure(figsize=figsize)
+        sns.regplot(x=feature, y=target, data=df, line_kws={'color':'red','label':'order 1'})
+        sns.regplot(x=feature, y=target, data=df, order=2, label='order 2', color='green', scatter=None)
+        plt.title('{} r_1={:.2f}, r_2={:.2f}'.format(feature, r_value1[0], r_value2[0]), fontsize=14, weight='bold')
+        plt.xlabel(feature, fontsize=14)
+        plt.ylabel(target, fontsize=14)
+        plt.legend()
+        plt.show()
+    else:
+        plt.figure(figsize=figsize)
+        sns.regplot(x=feature, y=target, data=df, line_kws={'color':'red','label':'order 1'})
+        plt.title('{} r_1={:.2f}'.format(feature, r_value1[0]), fontsize=14, weight='bold')
+        plt.xlabel(feature, fontsize=14)
+        plt.ylabel(target, fontsize=14)
+        plt.legend()
+        plt.show()
+
+def feats_squared_corr(features, target, df):  
+    """Scatter plot of feature and target if 2nd Order poly fit R^2 is greater
+    than 1st Order poly fit R^2.
+    
+    Parameters
+    ----------
+    features : str | list of str
+        Feature name or list of feature names.
+    target : str
+        Target name in the df.
+    df : DataFrame
+    
+    Returns
+    -------
+    None
+    """ 
+    
+    if type(features) == str:
+        r_value1 = stats.pearsonr(df[features], df[target]) #1st order Pearson corr coef
+        r_value2 = stats.pearsonr(df[features]**2, df[target]) #2nd order Pearson corr coef
+        
+        if abs(r_value2[0]) > abs(r_value1[0]):
+            plt.figure(figsize=(7,5))
+            sns.regplot(x=features, y=target, data=df, line_kws={'color':'red','label':'1st Order'})
+            sns.regplot(x=features, y=target, data=df, order=2, label='2nd Order', color='green', scatter=None)
+            plt.title('{} r_1={:.2f}, r_2={:.2f}'.format(features, r_value1[0], r_value2[0]), 
+                      fontsize=14, weight='bold')
+            plt.xlabel(features, fontsize=14)
+            plt.ylabel(target, fontsize=14)
+            plt.legend()
+            plt.show()
+        else:
+            print('2nd Order correlation did not exceed 1st Order.')
+    else:
+        
+        squares = []
+        for f in features:
+            r1 = stats.pearsonr(df[f], df[target])
+            r2 = stats.pearsonr(df[f]**2, df[target])
+            if abs(r2[0]) > abs(r1[0]):
+                squares.append((f,r1[0],r2[0]))
+
+        if len(squares) == 0:
+            return '2nd Order correlation did not exceed 1st Order for all features.'
+        
+        elif len(squares) == 1:
+            plt.figure(figsize=(7,5))
+            sns.regplot(x=features, y=target, data=df, line_kws={'color':'red','label':'1st Order'})
+            sns.regplot(x=features, y=target, data=df, order=2, label='2nd Order', color='green', scatter=None)
+            plt.title('{} r_1={:.2f}, r_2={:.2f}'.format(features, r_value1[0], r_value2[0]), 
+                      fontsize=14, weight='bold')
+            plt.xlabel(features, fontsize=14)
+            plt.ylabel(target, fontsize=14)
+            plt.legend()
+        
+        else:
+            rows = math.ceil(len(squares) / 3)
+            fig, axes = plt.subplots(rows,3, figsize=(20,20), 
+                                     subplot_kw={'xticks':(), 'yticks':()})
+
+            for i, (ax,tpl) in enumerate(zip(axes.ravel(), squares)):
+                if i >= len(squares):
+                    break
+                else:
+                    ax.set_title('{} r_1={:.2f}, r_2={:.2f}'.format(tpl[0], tpl[1], tpl[2]), 
+                                 fontsize=12, weight='bold')
+                    ax.set_xlabel(tpl[0], fontsize=14)
+                    ax.set_ylabel(target, fontsize=14)
+                    sns.regplot(x=tpl[0], y=target, data=df, line_kws={'color':'red','label':'1st Order'}, ax=ax)
+                    try:
+                        sns.regplot(x=tpl[0], y=target, data=df, order=2, label='2nd Order', 
+                                    color='green', scatter=None, ax=ax)
+                    except ValueError:
+                        pass
+                    ax.legend()
+            for ax in axes.ravel()[len(squares):]:
+                ax.set_visible(False)
+        plt.show()
+
 
 ### ### ###
 

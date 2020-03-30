@@ -84,7 +84,9 @@ def box(df, x, y):
     -------
     None
     """
-    #feature class values sorted alphabetically
+
+    #string class values sorted alphabetically
+    #and numeric class values ascendingly
     classes = sorted(df[x].unique())
     
     #group data by feature class values, returns DataFrameGroupBy object.
@@ -105,8 +107,9 @@ def box(df, x, y):
         return group[(group[y] > upper.loc[class_name][y]) |
                      (group[y] < lower.loc[class_name][y])][y]
     
-    out = groups.apply(outliers).dropna().reset_index() #multindex (class, range index) series
-    
+    #multindex (class, range index) series
+    out = groups.apply(outliers).dropna().reset_index() 
+
     #sort outlier index values by mean class mean value
     out = pd.merge(left=q_50, right=out, how='outer', on=x, 
                    suffixes=('_mean', '')).sort_values(
@@ -114,7 +117,7 @@ def box(df, x, y):
     
     #construct outlier coordinates (if outliers excist)
     if not out.empty:
-        outx = out.index.values #class names for x coordinates
+        outx = out.index.values.astype('str') #class names for x coordinates
         outy = out[y] #y values
     
     #if no outliers, shrink lengths of stems to be 
@@ -133,18 +136,18 @@ def box(df, x, y):
         colors = Category20[len(classes)]
     
     #create df of the data for the boxes
-    box_df = pd.DataFrame(data={'classes':classes, 'q_25':q_25[y], 'q_50':q_50[y],
-                                'q_75':q_75[y],'upper':upper[y], 'lower':lower[y], 
-                                'color':colors}).sort_values(by='q_50', ascending=False)
+    box_df = pd.DataFrame(data={'classes':classes, 'q_25':q_25[y], 'q_50':q_50[y],'q_75':q_75[y],
+                            'upper':upper[y], 'lower':lower[y], 'color':colors}).sort_values(
+                            by='q_50', ascending=False)
     
     #force 'class' dtype to be str
-    box_df['classes'] = box_df['classes'].astype(str)                            
-                                
+    box_df['classes'] = box_df['classes'].astype(str)
+    
     #creating the bokeh source obj
     source = ColumnDataSource(box_df)
     
     #creating the canvas
-    p = figure(plot_height=450, x_range=box_df.classes, 
+    p = figure(plot_height=400, x_range=box_df.classes.unique(), 
                title=x+" vs "+y, x_axis_label=x,
                y_axis_label=y)
     
@@ -260,7 +263,7 @@ def hist(df, feature, bins=50):
     #figure properties
     p1.xgrid.visible = False
     
-    #hide entries when clocking ona legend
+    #hide entries when clocking on a legend
     p1.legend.click_policy="hide"
     
     show(p1)
