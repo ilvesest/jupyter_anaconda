@@ -9,8 +9,69 @@ from scipy.stats import norm, linregress
 
 from bokeh.plotting import figure, show
 from bokeh.models import ColumnDataSource, HoverTool, BoxSelectTool, \
-    NumeralTickFormatter, Range1d, LinearAxis
+    NumeralTickFormatter, Range1d, LinearAxis, Legend
 from bokeh.palettes import Category20
+
+### LINE PLOT ###
+def line(df, x, y):
+    """Plots bokeh line plot.
+    
+    Parameters
+    ----------
+    df : DataFrame
+        DataFrame with all necessary data.
+    x : str
+        DataFrame column name for the x axis.
+    y : str
+        DataFrame column name for the y axis.
+    """
+    
+    #create an informative df
+    new_df = df.groupby(x)[y].mean().to_frame() #mean
+    new_df = new_df.join(df.groupby(x)[y].median(), rsuffix='med') #median
+    new_df = new_df.join(df.groupby(x)[x].count()) #count
+    new_df.columns = ['mean', 'median', 'count']
+    new_df = new_df.reset_index()
+
+    source = ColumnDataSource(new_df)
+    
+    p = figure(plot_height=350, plot_width=700, title=x + ' vs ' + y,
+               x_axis_label=x, y_axis_label=y)
+    
+    #initialize colors
+    colors = ['#008000', '#0000FF']
+    
+    #capture legend items
+    legend_items = []
+    
+    for col,color in zip(new_df.columns.values[1:-1], colors):
+        
+        #create circles
+        circles = p.circle(x=x, y=col, source=source, size=6, 
+                           hover_fill_color='maroon', color=color, alpha=0.1)
+        #create line
+        lines = p.line(x=x, y=col, source=source, line_width=2, 
+                       color=color)
+
+        #add hover tool
+        p.add_tools(HoverTool(renderers=[circles], 
+                              tooltips=[('x', '@'+x),('y', '@'+col+'{0,0}'),('count', '@count')]))
+
+        #add legend items to a list
+        legend_items.append((col, [circles,lines]))
+        
+    #y axis ticks
+    p.yaxis[0].formatter = NumeralTickFormatter(format='0,0')
+    
+    ##LEGEND##
+    legend = Legend(items=legend_items, location='center') #legend object
+
+    p.add_layout(legend, place='right') #extra area to the figure
+
+    #hide entries when clocking on a legend
+    p.legend.click_policy="hide"
+
+    show(p)
 
 ### SCATTER PLOT ###
 def scatter(df, x, y, reg=False):
