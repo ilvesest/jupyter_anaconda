@@ -13,7 +13,7 @@ from bokeh.models import ColumnDataSource, HoverTool, BoxSelectTool, \
 from bokeh.palettes import Category20
 
 ### LINE PLOT ###
-def line(df, x, y, height=350, width=700):
+def line(df, x, y, height=350, width=700, x_axis_type='auto'):
     """Plots bokeh line plot.
     
     Parameters
@@ -36,7 +36,7 @@ def line(df, x, y, height=350, width=700):
     source = ColumnDataSource(new_df)
     
     p = figure(height=height, width=width, title=x + ' vs ' + y,
-               x_axis_label=x, y_axis_label=y)
+               x_axis_label=x, y_axis_label=y, x_axis_type=x_axis_type)
     
     #initialize colors
     colors = ['#008000', '#0000FF']
