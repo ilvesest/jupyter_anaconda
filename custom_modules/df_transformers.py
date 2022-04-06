@@ -29,6 +29,11 @@ class DFDtypeTransformer(BaseEstimator, TransformerMixin):
         Dtypes transforemed data.
     """
     def __init__(self, dtypes_dict: dict):
+        
+        # check if dtypes_dict has proper format
+        assert all(type(val) is list for key,val in dtypes_dict.items()), \
+            "Dictionary values must be of type list."
+        
         self.dtypes_dict = dtypes_dict
         
     def fit(self, X, y=None):
@@ -36,15 +41,11 @@ class DFDtypeTransformer(BaseEstimator, TransformerMixin):
     
     def transform(self, X, y=None):
         X_ = X.copy()
-        for dtype, cols_list in self.dtypes_dict.items():
-            try:
-                X_[cols_list] = X_[cols_list].astype(dtype)
-            except KeyError: 
-                # if column not in list, remove it
-                cols_list_ = [col for col in cols_list if col in X_.columns]
-                if len(cols_list_) == 0: continue
-                else:
-                    X_[cols_list_] = X_[cols_list].astype(dtype)
+        for dtype, feature_list in self.dtypes_dict.items():
+            for feature in feature_list:
+                try:
+                    X_[feature] = X_[feature].astype(dtype)
+                except KeyError: continue
         return X_
 
 # --- ENCODING, MAPPING --- #
