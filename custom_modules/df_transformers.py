@@ -108,7 +108,6 @@ class DFImputer(BaseEstimator, TransformerMixin):
         elif self.method is not None:
             return X_.fillna(method=self.method)
 
-
 class DFDummiesEncoder(BaseEstimator, TransformerMixin):
     '''Dummie encoding for nominal categorical data, in a
     one-hot-encode fashion. 
@@ -178,14 +177,70 @@ class DFPowerTransformer(BaseEstimator, TransformerMixin):
         return self
     
     def transform(self, X, y=None):
+        X_ = X.copy()
+        
         # if X is series or 1 column DF
-        if len(X.shape) == 1 or X.shape[1] == 1:
-            cols = X.name if len(X.shape) == 1 else X.self.columns
+        if len(X_.shape) == 1 or X_.shape[1] == 1:
+            cols = X_.name if len(X_.shape) == 1 else X_.self.columns
+            
             return pd.DataFrame(
-                data=self.pt.transform(X[cols].values.reshape(-1,1)),
-                index=X.index,
+                data=self.pt.transform(X_[cols].values.reshape(-1,1)),
+                index=X_.index,
                 columns=cols)
         else:
-            return pd.DataFrame(data=self.pt.transform(X), 
-                                index=X.index, 
-                                columns=X.columns)
+            # use all columns if columns are not specified
+            cols = X_.columns if self.columns is None else self.columns
+            
+            return pd.DataFrame(data=self.pt.transform(X_[cols]), 
+                                index=X_.index, 
+                                columns=X_.columns)
+
+class DFStandardScaler(BaseEstimator, TransformerMixin):
+    """Standardize features by removing the mean and scaling to 
+    unit variance.
+    
+    Parameters
+    ----------
+    columns : list of column names, default None
+        List of column name(s) to be standardized. If None all
+        columns will be transformed.
+    with_mean : bool, default=True
+        If True, center the data before scaling. This does not work (and will 
+        raise an exception) when attempted on sparse matrices, because 
+        centering them entails building a dense matrix which in common use 
+        cases is likely to be too large to fit in memory.
+    with_std : bool, default=True
+        If True, scale the data to unit variance (or equivalently, unit 
+        standard deviation).
+    Returns
+    -------
+    DataFrmae
+        Standardized data."""
+        
+    def __init__(self, columns=None, with_mean=True, with_std=True):
+        self.columns = columns
+        self.sc = StandardScaler(with_mean=with_mean, with_std=with_std)
+        
+    def fit(self, X, y=None):
+        cols = X.columns if self.columns is None else self.columns
+        self.sc.fit(X[cols], y)
+        return self
+    
+    def transform(self, X, y=None):
+        X_ = X.copy()
+        
+        # if X is series or 1 column DF
+        if len(X_.shape) == 1 or X_.shape[1] == 1:
+            cols = X_.name if len(X_.shape) == 1 else X_.self.columns
+
+            return pd.DataFrame(
+                data=self.sc.transform(X_[cols].values.reshape(-1,1)),
+                index=X_.index,
+                columns=cols)
+        else:
+            # use all columns if columns are not specified
+            cols = X_.columns if self.columns is None else self.columns
+
+            return pd.DataFrame(data=self.sc.transform(X_[cols]), 
+                                index=X_.index, 
+                                columns=cols)
