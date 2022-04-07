@@ -14,7 +14,8 @@ from sklearn.preprocessing import PowerTransformer
 
 ### PREPROCESSING ###
 
-# DF compatible dtype transformer
+# --- ENCODING, MAPPING --- #
+
 class DFDtypeTransformer(BaseEstimator, TransformerMixin):
     """Transforms features dtypes by given dtype dictionary.
     
@@ -48,7 +49,65 @@ class DFDtypeTransformer(BaseEstimator, TransformerMixin):
                 except KeyError: continue
         return X_
 
-# --- ENCODING, MAPPING --- #
+class DFImputer(BaseEstimator, TransformerMixin):
+    """Fill NA/NaN values using the specified value, strategy or method. 
+    Implemented on top of pandas fillna() function.
+    
+    Parameters
+    ----------
+    value : scalar, dict, Series, or DataFrame
+        Value to use to fill holes (e.g. 0), alternately a
+        dict/Series/DataFrame of values specifying which value to use for
+        each index (for a Series) or column (for a DataFrame).  Values not
+        in the dict/Series/DataFrame will not be filled. This value cannot
+        be a list.
+    strat : {'mean', 'median', 'most_frequent'}, defualt None
+        Aggregation strategy to use for imputing NaN-s. 
+    method : {'backfill', 'bfill', 'pad', 'ffill', None}, default None
+        Method to use for filling holes in reindexed Series
+        pad / ffill: propagate last valid observation forward to next valid
+        backfill / bfill: use next valid observation to fill gap.
+        
+    Returns
+    -------
+    DataFrame or None
+    """
+    # asterisk denotes key-word arguments only
+    def __init__(self, *, value=None, strat=None, method=None):
+        
+        # asserting the parameters are set correctly
+        if value == strat == method == None:
+            raise ValueError("Value, strat and method can't all be None.")
+        elif sum(1 for i in (value, strat, method) if i is not None) > 1:
+            raise ValueError("Specify one key-word argument only.")
+        elif strat is not None:
+            if strat not in ['mean', 'median', 'most_frequent']:
+                raise ValueError(f"{strat} not recognized as valid parameter.")
+        
+        self.value = value
+        self.strat = strat
+        self.method = method
+    
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X, y=None):
+        X_ = X.copy()
+        
+        if self.value is not None: 
+            return X_.fillna(self.value)
+        
+        elif self.strat is not None:
+            if self.strat == 'mean':
+                return X_.fillna(X_.mean())
+            elif self.strat == 'median':
+                return X_.fillna(X_.median())
+            elif self.strat == 'most_frequent':
+                return X_.fillna(X_.mode().iloc[0])
+        
+        elif self.method is not None:
+            return X_.fillna(method=self.method)
+
 
 class DFDummiesEncoder(BaseEstimator, TransformerMixin):
     '''Dummie encoding for nominal categorical data, in a
@@ -81,7 +140,6 @@ class DFDummiesEncoder(BaseEstimator, TransformerMixin):
         return pd.get_dummies(data=X_, 
                               columns=self.columns, 
                               drop_first=self.drop_first)
-
 
 # --- SCALING, NORMALIZING, UNSKEWING --- #
 
