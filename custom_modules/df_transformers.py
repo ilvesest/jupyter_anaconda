@@ -9,7 +9,8 @@ Contains custom for DF only sklearn transformers.
 ### IMPORTS ###
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.preprocessing import PowerTransformer
+from sklearn.preprocessing import PowerTransformer, StandardScaler
+from sklearn.compose import ColumnTransformer
 
 
 ### PREPROCESSING ###
@@ -219,7 +220,9 @@ class DFStandardScaler(BaseEstimator, TransformerMixin):
         
     def __init__(self, columns=None, with_mean=True, with_std=True):
         self.columns = columns
-        self.sc = StandardScaler(with_mean=with_mean, with_std=with_std)
+        self.with_mean = with_mean
+        self.with_std = with_std
+        self.sc = StandardScaler(with_mean=self.with_mean, with_std=self.with_std)
         
     def fit(self, X, y=None):
         cols = X.columns if self.columns is None else self.columns
@@ -244,3 +247,6 @@ class DFStandardScaler(BaseEstimator, TransformerMixin):
             return pd.DataFrame(data=self.sc.transform(X_[cols]), 
                                 index=X_.index, 
                                 columns=cols)
+
+### PIPING ###
+
