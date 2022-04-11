@@ -91,9 +91,7 @@ class DFColumnTransformer(BaseEstimator, TransformerMixin):
     Parameters
     ----------
     transformers : list of tuples
-        List of tuples in the form: (name, transformer, columns).
-    remainder : str
-        Strategy for the features that were not selected. Possible values are
+        List of tuples in tatures that were not selected. Possible values are
         ['drop', 'passthrough'].
     
     Returns: DataFrame

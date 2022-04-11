@@ -8,47 +8,13 @@ Contains custom for DF only sklearn transformers.
 """
 ### IMPORTS ###
 import pandas as pd
+import numpy as np
+
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.preprocessing import PowerTransformer, StandardScaler
-from sklearn.compose import ColumnTransformer
+from sklearn.compose import ColumnTransformer, make_column_transformer
+from sklearn.pipeline import Pipeline
 
-
-### PREPROCESSING ###
-
-# --- ENCODING, MAPPING --- #
-
-class DFDtypeTransformer(BaseEstimator, TransformerMixin):
-    """Transforms features dtypes by given dtype dictionary.
-    
-    Parameters
-    ----------
-    dtypes_dict : dict {'dtype': ['feature1', 'feature2']}
-        Dictionary with dtypes as keys and list of features as values.
-    
-    Returns
-    -------
-    DataFrame
-        Dtypes transforemed data.
-    """
-    def __init__(self, dtypes_dict: dict):
-        
-        # check if dtypes_dict has proper format
-        assert all(type(val) is list for key,val in dtypes_dict.items()), \
-            "Dictionary values must be of type list."
-        
-        self.dtypes_dict = dtypes_dict
-        
-    def fit(self, X, y=None):
-        return self
-    
-    def transform(self, X, y=None):
-        X_ = X.copy()
-        for dtype, feature_list in self.dtypes_dict.items():
-            for feature in feature_list:
-                try:
-                    X_[feature] = X_[feature].astype(dtype)
-                except KeyError: continue
-        return X_
 
 class DFImputer(BaseEstimator, TransformerMixin):
     """Fill NA/NaN values using the specified value, strategy or method. 
@@ -109,37 +75,30 @@ class DFImputer(BaseEstimator, TransformerMixin):
         elif self.method is not None:
             return X_.fillna(method=self.method)
 
-class DFDummiesEncoder(BaseEstimator, TransformerMixin):
-    '''Dummie encoding for nominal categorical data, in a
-    one-hot-encode fashion. 
+class DFDummyEncoder(BaseEstimator, TransformerMixin):
+    """Convert categorical variable into dummy/indicator variables.
+    Built on top of pandas get_dummies() function.
     
     Parameters
     ----------
-    columns : list, default None
-        List of column name(s) to be encoded. If not specified
-        all columns are encoded.
-    drop_first : bool, default True
-        Whether to get k-1 dummies out of k categorical levels 
-        by removing the first level.
-        
-    Returns
-    ------- 
-    DataFrame
-        Dummy-coded data.'''
-    def __init__(self, columns=None, drop_first=True):
-        self.columns = columns
-        self.drop_first = drop_first
+    drop_first : bool, default False
+        Whether to get k-1 dummies out of k categorical levels by removing 
+        the first level.
     
+    Returns
+    -------
+    DataFrame
+        Dummy-coded data.
+    """
+    def __init__(self, drop_first=False):
+        self.drop_first = drop_first
+        
     def fit(self, X, y=None):
         return self
     
     def transform(self, X, y=None):
         X_ = X.copy()
-        if self.columns is None:
-            self.columns = X_.columns
-        return pd.get_dummies(data=X_, 
-                              columns=self.columns, 
-                              drop_first=self.drop_first)
+        return pd.get_dummies(X_, drop_first=self.drop_first)
 
 # --- SCALING, NORMALIZING, UNSKEWING --- #
 
@@ -250,3 +209,321 @@ class DFStandardScaler(BaseEstimator, TransformerMixin):
 
 ### PIPING ###
 
+
+class DFColumnTransformer(BaseEstimator, TransformerMixin):
+    """Applies transformers to columns of an array or pandas DataFrame.
+    
+    Parameters
+    ----------
+    transformers : list of tuples
+        Tuples of the form: (name, transformer, columns).
+        name : str
+            Step name, allows he transformer and its parameters to be set 
+            using set_params and searched in grid search.
+        transformer : {‘drop’, ‘passthrough’} or estimator
+            Estimator must support fit and transform. Special-cased strings 
+            ‘drop’ and ‘passthrough’ are accepted as well, to indicate to 
+            drop the columns or to pass them through untransformed, 
+            respectively.
+        columns : str, array-like of str, etc
+            Strings can reference DataFrame columns by name.
+    remainder : {‘drop’, ‘passthrough’}, default='drop'
+        Strategy for the features that were not selected.
+    n_jobs : int, default=-1
+        None means 1 and -1 means all available processors.
+    verbose_feature_names_out : bool, default=False
+        If True, get_feature_names_out will prefix all feature names with 
+        the name of the transformer that generated that feature.
+    
+    Returns
+    -------
+    DataFrame
+        DF of transformed data.
+    """
+    def __init__(self, transformers, remainder='drop', n_jobs=-1,
+                 verbose_feature_names_out=False):
+        self.transformers = transformers
+        self.remainder = remainder
+        self.n_jobs = n_jobs
+        self.verbose_feature_names_out=verbose_feature_names_out
+        self.ct = ColumnTransformer(
+            transformers, 
+            remainder=remainder,
+            n_jobs=n_jobs,
+            verbose_feature_names_out=verbose_feature_names_out)
+        
+        # init transformed column names
+        self.transformed_column_names: list[str] = None
+        
+    def _get_column_names(self, X: pd.DataFrame) -> list[str]:
+        """Get names of transformed columns from a fitted self.ct
+        
+        Parameters
+        ----------
+        X : DataFrame
+            DataFrame to be fitted on
+        
+        Returns
+        -------
+        column_names : List[str]
+            Flattened list of column names.
+        """
+        cols_lists = []
+        for name, transformer, cols in self.ct.transformers_:
+            
+            if hasattr(transformer, "get_feature_names_out"):
+                cols_lists.append(transformer.get_feature_names_out(cols))
+            # select by remainder
+            elif name=='remainder' and self.ct.remainder=="passthrough":
+                cols_lists.append(X.columns[cols]) # cols are ints
+            # select by transformer
+            elif isinstance(transformer,str) and transformer=='passthrough':
+                cols_lists.append(cols)
+            # drop by remainder or transformer
+            elif (name == "remainder" and self.ct.remainder == 'drop') or \
+                (isinstance(transformer,str) and transformer == 'drop'):
+                continue
+            else:
+                cols_lists.append(cols)
+        
+        # flatten the list
+        return [col for list_ in cols_lists for col in list_]
+    
+    def get_feature_names_out(self, input_features=None) -> np.ndarray:
+        """Get output feature names for transformation
+        
+        Parameters
+        ----------
+        input_features : array-like of str or None, default=None
+            Input features.
+        
+        Returns
+        -------
+        feature_names_out : ndarray of str objects
+            Transformed feature names.
+        """
+        if self.transformed_column_names is not None:
+            return self.transformed_column_names
+        else:
+            raise ValueError(f"{self} is not fitted!")
+    
+    def fit(self, X: pd.DataFrame, y=None) -> pd.DataFrame:
+        """Fit ColumnTransformer, and obtain names of transformed columns."""
+        assert isinstance(X, pd.DataFrame)
+        
+        self.ct.fit(X, y)
+        self.transformed_column_names = self._get_column_names(X)
+        return self
+    
+    def transform(self, X: pd.DataFrame, y=None) -> pd.DataFrame:
+        """Transform a new DF using fitted self.ct."""
+        assert isinstance(X, pd.DataFrame)
+        
+        transformed_X = self.ct.transform(X)
+        if isinstance(transformed_X, np.ndarray):
+            return pd.DataFrame(
+                data=transformed_X,
+                index=X.index,
+                columns=self.transformed_column_names)
+        else:
+            return pd.DataFrame.sparse.from_spmatrix(
+                data=transformed_X,
+                index=X.index,
+                columns=self.transformed_column_names)
+
+class DFPipeline(BaseEstimator, TransformerMixin):
+    """A wrapper to sklearn.pipeline.Pipeline to return
+    data as pandas DataFrame with corresponding column names."""
+    
+    def __init__(self, steps, **kwargs):
+        """Initialize Pipeline object through Pipeline construct.
+        
+        Parameters
+        ----------
+        steps : list of tuples
+            List of (name, transform) tuples (implementing fit/transform) 
+            that are chained.
+        kwargs : keyword arguments for sklearn.pipeline.Pipeline.
+        """
+        self.steps = steps
+        self.pipeline = Pipeline(steps, **kwargs)
+        self.transformed_column_names = None
+        
+    def _get_column_names(self, X: pd.DataFrame) -> list:
+        """Get names of transformed columns from a fitted self.pipeline
+        
+        Parameters
+        ----------
+        X : DataFrame
+            DataFrame to be fitted on
+        
+        Returns
+        -------
+        column_names : List[str]
+            Flattened list of column names.
+        """
+        # last step in the pipeline
+        last_estimator = self.pipeline.get_params()['steps'][-1][-1]
+        input_features = X.columns
+        
+        if hasattr(last_estimator, "get_feature_names_out"):
+            return last_estimator.get_feature_names_out(input_features)
+        elif hasattr(last_estimator, "feature_names_in_") and \
+            last_estimator.feature_names_in_ is not None:
+            return list(last_transformer.feature_names_in_)
+        else:
+            return input_features
+    
+    def get_feature_names_out(self, input_features=None) -> np.ndarray:
+        """Get output feature names for transformation
+        
+        Parameters
+        ----------
+        input_features : array-like of str or None, default=None
+            Input features.
+        
+        Returns
+        -------
+        feature_names_out : ndarray of str objects
+            Transformed feature names.
+        """
+        if self.transformed_column_names is not None:
+            return self.transformed_column_names
+        else:
+            raise ValueError(f"{self} is not fitted!")
+    
+    def fit(self, X: pd.DataFrame, y=None) -> pd.DataFrame:
+        """Fit Pipeline, and obtain names of transformed columns."""
+        assert isinstance(X, pd.DataFrame)
+        self.pipeline.fit(X, y)
+        
+        self.transformed_column_names = self._get_column_names(X)
+        return self
+    
+    def transform(self, X: pd.DataFrame, y=None) -> pd.DataFrame:
+        """Transform a new DF using fitted self.pipeline."""
+        assert isinstance(X, pd.DataFrame)
+        
+        transformed_X = self.pipeline.transform(X)
+        if isinstance(transformed_X, np.ndarray):
+            return pd.DataFrame(
+                data=transformed_X,
+                index=X.index,
+                columns=self.transformed_column_names)
+        else:
+            return pd.DataFrame.sparse.from_spmatrix(
+                data=transformed_X,
+                index=X.index,
+                columns=self.transformed_column_names)
+
+# NB! DFmake_ct works with fit and trasnform but can throw RuntimeError:
+# RuntimeError: scikit-learn estimators should always specify their parameters 
+# in the signature of their __init__ (no varargs). <class '__main__.DFmake_ct'> 
+# with constructor (self, *transformers, remainder='drop', n_jobs=-1, 
+# verbose_feature_names_out=False) doesn't  follow this convention.
+class DFmake_ct(BaseEstimator, TransformerMixin):
+    """Applies transformers to columns of an array or pandas DataFrame..
+    
+    Parameters
+    ----------
+    *transformers : tuples
+        Tuples of the form: (transformer, columns).
+    remainder : {‘drop’, ‘passthrough’}, default='drop'
+        Strategy for the features that were not selected.
+    n_jobs : int, default=-1
+        None means 1 and -1 means all available processors.
+    verbose_feature_names_out : bool, default=False
+        If True, get_feature_names_out will prefix all feature names with 
+        the name of the transformer that generated that feature.
+    
+    Returns
+    -------
+    DataFrame
+        DF of transformed data.
+    """
+    def __init__(self, *transformers, remainder='drop', n_jobs=-1, 
+                 verbose_feature_names_out=False):
+        self.transformers = transformers
+        self.remainder = remainder
+        self.n_jobs = n_jobs
+        self.transformed_column_names = None
+        self.ct = make_column_transformer(
+            *transformers,
+            remainder=remainder,
+            n_jobs=n_jobs,
+            verbose_feature_names_out=verbose_feature_names_out)
+        
+    def _get_column_names(self, X: pd.DataFrame):
+        """Get names of transformed columns from a fitted self.ct
+        
+        Parameters
+        ----------
+        X : DataFrame
+            DataFrame to be fitted on
+        
+        Returns
+        -------
+        column_names : List[str]
+            Flattened list of column names.
+        """
+        cols_lists = []
+        for name, transformer, cols in self.ct.transformers_:
+            
+            if hasattr(transformer, "get_feature_names_out"):
+                cols_lists.append(transformer.get_feature_names_out(cols))
+            # select by remainder
+            elif name=='remainder' and self.ct.remainder=="passthrough":
+                cols_lists.append(X.columns[cols]) # cols are ints
+            # select by transformer
+            elif isinstance(transformer,str) and transformer=='passthrough':
+                cols_lists.append(cols)
+            # drop by remainder or transformer
+            elif (name == "remainder" and self.ct.remainder == 'drop') or \
+                (isinstance(transformer,str) and transformer == 'drop'):
+                continue
+            else:
+                cols_lists.append(cols)
+        
+        return [col for list_ in cols_lists for col in list_]
+    
+    def get_feature_names_out(self, input_features=None) -> np.ndarray:
+        """Get output feature names for transformation
+        
+        Parameters
+        ----------
+        input_features : array-like of str or None, default=None
+            Input features.
+        
+        Returns
+        -------
+        feature_names_out : ndarray of str objects
+            Transformed feature names.
+        """
+        if self.transformed_column_names is not None:
+            return self.transformed_column_names
+        else:
+            raise ValueError(f"{self} is not fitted!")
+    
+    def fit(self, X: pd.DataFrame, y=None) -> pd.DataFrame:
+        """Fit ColumnTransformer, and obtain names of transformed columns."""
+        assert isinstance(X, pd.DataFrame)
+        
+        self.ct.fit(X, y)
+        self.transformed_column_names = self._get_column_names(X)
+        return self
+
+    def transform(self, X: pd.DataFrame, y=None) -> pd.DataFrame:
+        """Transform a new DF using fitted self.ct."""
+        assert isinstance(X, pd.DataFrame)
+        
+        transformed_X = self.ct.transform(X)
+        if isinstance(transformed_X, np.ndarray):
+            return pd.DataFrame(
+                data=transformed_X,
+                index=X.index,
+                columns=self.transformed_column_names)
+        else:
+            return pd.DataFrame.sparse.from_spmatrix(
+                data=transformed_X,
+                index=X.index,
+                columns=self.transformed_column_names)
