@@ -10,7 +10,9 @@ Contains custom for DF only sklearn transformers.
 import pandas as pd
 import numpy as np
 
-from sklearn.base import BaseEstimator, TransformerMixin
+
+from sklearn.base import BaseEstimator, TransformerMixin, RegressorMixin, \
+    clone
 from sklearn.preprocessing import PowerTransformer, StandardScaler
 from sklearn.compose import ColumnTransformer, make_column_transformer
 from sklearn.pipeline import Pipeline
@@ -208,7 +210,6 @@ class DFStandardScaler(BaseEstimator, TransformerMixin):
                                 columns=cols)
 
 ### PIPING ###
-
 
 class DFColumnTransformer(BaseEstimator, TransformerMixin):
     """Applies transformers to columns of an array or pandas DataFrame.
@@ -527,3 +528,60 @@ class DFmake_ct(BaseEstimator, TransformerMixin):
                 data=transformed_X,
                 index=X.index,
                 columns=self.transformed_column_names)
+
+################### --- ESTIMATORS --- ###################
+
+####### ENSEMBLES #######
+
+class AveragingEnsemble(BaseEstimator, RegressorMixin, TransformerMixin):
+    def __init__(self, models):
+        self.models = models
+    
+    # define clones of the base models
+    def fit(self, X, y):
+        self.models_ = [clone(model) for model in self.models]
+        self.y = y
+        #train the models
+        for model in self.models_:
+            model.fit(X, y)
+        
+        return self
+    
+    # averaging predictions
+    def predict(self, X):
+        predictions = [model.predict(X).clip(min=0) for model in self.models_]
+        predictions = sum(predictions) / len(predictions) 
+        return predictions
+
+class CustomStackingRegressor(BaseEstimator, TransformerMixin):
+    
+    def __init__(self, model_1, model_2):
+        self.model_1  = clone(model_1)
+        self.model_2 = clone(model_2)
+        self.y_columns = None # dummy for column names from fit method later
+        
+    def fit(self, X, y):
+        self.model_1.fit(X, y) # fit 1st model
+        
+        # first model prediction that captures trend
+        y_pred_1 = pd.DataFrame(self.model_1.predict(X), 
+                                index=X.index, 
+                                columns=y.columns).clip(0.0)
+        
+        y_resid = y - y_pred_1
+        
+        # fit 2nd model on features designed for it 
+        self.model_2.fit(X, y_resid)
+        
+        self.y_columns = y.columns # col names for predict method
+        self.y_pred_1 = y_pred_1
+        self.y_resid = y_resid
+        
+        return self
+    
+    def predict(self, X):
+        y_pred = pd.DataFrame(self.model_2.predict(X),
+                              index=X.index, 
+                              columns=self.y_columns)
+        
+        return y_pred.clip(0.0)
