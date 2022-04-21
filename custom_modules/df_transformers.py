@@ -16,6 +16,20 @@ from sklearn.base import BaseEstimator, TransformerMixin, RegressorMixin, \
 from sklearn.preprocessing import PowerTransformer, StandardScaler
 from sklearn.compose import ColumnTransformer, make_column_transformer
 from sklearn.pipeline import Pipeline
+from sklearn.utils.validation import check_is_fitted
+
+"""
+class SKELETON(BaseEstimator, TransformerMixin):
+    def __init__(self):
+    def fit(self, X, y=None):
+        self.all_columns_ = X.columns
+        return self
+    def get_feature_names_out(self, input_features=None) -> np.ndarray:
+        check_is_fitted(self)
+        return self.all_columns_
+    def transform(self, X, y=None):
+        return X
+"""
 
 
 class DFImputer(BaseEstimator, TransformerMixin):
@@ -209,7 +223,53 @@ class DFStandardScaler(BaseEstimator, TransformerMixin):
                                 index=X_.index, 
                                 columns=cols)
 
-### PIPING ###
+# --- MAPPING --- #
+class DFDtypeMapper(BaseEstimator, TransformerMixin):
+    """Remap pandas dataframe dtypes.
+    Parameters
+    ----------
+    dtype_dict : dict, {'dtype':[col_name]}
+        Dictionary of dtypes as keys and values as list of column names. 
+    
+    Returns
+    -------
+    DataFrame : pd.DataFrame"""
+    def __init__(self, dtype_dict : dict):
+        self.dtype_dict = dtype_dict
+        self.transformed_column_names = None 
+        
+    def get_feature_names_out(self, input_features=None) -> np.ndarray:
+
+        if self.transformed_column_names is not None:
+            return self.transformed_column_names
+        else:
+            raise ValueError(f"{self} is not transformed!")
+    
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X, y=None) -> pd.DataFrame:
+        X_ = X.copy()
+        self.transformed_column_names = X_.columns
+        
+        # remove columns that are not in X
+        _dtype_dict = {}
+        for dtype, val in self.dtype_dict.items():
+            if isinstance(val, str):
+                if val in X_.columns: 
+                    _dtype_dict[dtype] = val
+            elif type(val) not in [tuple, list, np.ndarray]:
+                raise ValueError('Wrong type for value.')
+            else:
+                _dtype_dict[dtype] = [col for col in val 
+                                           if col in X_.columns]
+        
+        for dtype in _dtype_dict:
+            X_[_dtype_dict[dtype]] = X_[_dtype_dict[dtype]].astype(dtype)
+        
+        return X_
+
+# --- PIPING --- #
 
 class DFColumnTransformer(BaseEstimator, TransformerMixin):
     """Applies transformers to columns of an array or pandas DataFrame.
