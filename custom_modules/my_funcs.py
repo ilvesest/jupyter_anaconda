@@ -25,30 +25,7 @@ from sklearn.model_selection import train_test_split, GridSearchCV
 ################### ---  --- ###################
 ################### --- IO --- ###################
 
-    """Timing function execution duration.
-    
-    Parameters:
-        function (callable): function to be decorated.
-    
-    Returns (str): Elapsed time with appropriate prefix.
-    """
-    
-    from time import time
-    import math
-    
-    def wrapper(*args, **kw):
-        before = time()
-        return_value = function(*args, **kw)
-        after = time()
-        
-        # converting to appropriate second prefix
-        units = ['s', 'ms', 'μs', 'ns', 'ps']
-        n = float(after-before)
-        index = max(0, min(len(units) - 1, 
-                           int(abs(math.floor(0 if n == 0 else math.log10(abs(n)) / 3)))))
-        print('\nElapsed time: {:.2f} {}'.format(n * 10 ** (index * 3), units[index]))
-        return return_value
-    return wrapper
+
 def to_file(filename, data, extension=''):
     """Writes data to a file.
     
@@ -329,6 +306,8 @@ def feats_squared_corr(features, target, df):
         plt.show()
 
 ### TIME-SERIES ###
+
+# PLOTTING #
 def seasonal_plot(df, y, period, freq, ax=None):
     """Return seasonal plot axis."""
     
@@ -473,7 +452,36 @@ def plot_lags(x, y=None, lags=0, leads=0, nrows=1, lagplot_kwargs={}, **kwargs):
     fig.tight_layout(w_pad=0.1, h_pad=0.1)
     return fig
 
-
+# ANALYSIS #
+def datetime_gaps(df : pd.DataFrame, column : str, freq='D'):
+    """Display time series frequencies and gaps.
+    
+    Parameters
+    ----------
+    column : str, DataFrame column or index name.
+    freq : str, default 'D'
+        Predominant frequency of the datetime column/index."""
+    
+    df = df.reset_index()
+    date_range = pd.date_range(df[column][0], df[column].iloc[-1], freq=freq)
+    df[column] = df[column].astype(f"period[{freq}]")
+    
+    # find frequencies
+    temp = df.groupby([column]).sum().reset_index()
+    freqs = (temp.loc[:,column]# frequencies
+        .diff()
+        .value_counts(dropna=False)
+        .to_frame())
+    print("Frequencies")
+    print(freqs)
+    
+    # find gaps
+    gaps = date_range.difference(df[column])
+    if len(gaps) == 0:
+        print(f"No gaps in {column}.")
+    else:
+        print(f"{len(gaps)} gaps in datetime:")
+        return gaps
 ################### --- DATA SPLITTING --- ###################
 
 def split_data(X, y, test_size=0.25, shuffle=False, **kwargs):

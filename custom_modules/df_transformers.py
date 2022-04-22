@@ -237,21 +237,17 @@ class DFDtypeMapper(BaseEstimator, TransformerMixin):
     def __init__(self, dtype_dict : dict):
         self.dtype_dict = dtype_dict
         self.transformed_column_names = None 
-        
-    def get_feature_names_out(self, input_features=None) -> np.ndarray:
-
-        if self.transformed_column_names is not None:
-            return self.transformed_column_names
-        else:
-            raise ValueError(f"{self} is not transformed!")
     
     def fit(self, X, y=None):
+        self.all_columns_ = X.columns
         return self
+    
+    def get_feature_names_out(self, input_features=None) -> np.ndarray:
+        check_is_fitted(self)
+        return self.all_columns_
     
     def transform(self, X, y=None) -> pd.DataFrame:
         X_ = X.copy()
-        self.transformed_column_names = X_.columns
-        
         # remove columns that are not in X
         _dtype_dict = {}
         for dtype, val in self.dtype_dict.items():
@@ -259,7 +255,7 @@ class DFDtypeMapper(BaseEstimator, TransformerMixin):
                 if val in X_.columns: 
                     _dtype_dict[dtype] = val
             elif type(val) not in [tuple, list, np.ndarray]:
-                raise ValueError('Wrong type for value.')
+                raise ValueError(f'Wrong type for {self.dtype_dict} value.')
             else:
                 _dtype_dict[dtype] = [col for col in val 
                                            if col in X_.columns]
@@ -268,6 +264,40 @@ class DFDtypeMapper(BaseEstimator, TransformerMixin):
             X_[_dtype_dict[dtype]] = X_[_dtype_dict[dtype]].astype(dtype)
         
         return X_
+
+class DFValueMapper(BaseEstimator, TransformerMixin):
+    """Rename values in column based on dictionary.
+    Parameters
+    ----------
+    map_dict : dict 
+        Dictionary of old mappings to new.
+    cat_only : bool, default True
+        - If True: consider category dtype columns only
+        - If False: apply to all columns. Computationally more expensve.
+    
+    Returns
+    -------
+    DataFrame : pd.DataFrame
+        Remapped pandas DataFrame."""
+    def __init__(self, map_dict : dict, cat_only=True):
+        self.cat_only = cat_only
+        self.map_dict = map_dict
+    def fit(self, X, y=None):
+        self.all_columns_ = X.columns
+        return self
+    def get_feature_names_out(self, input_features=None) -> np.ndarray:
+        check_is_fitted(self)
+        return self.all_columns_
+    def transform(self, X, y=None) -> pd.DataFrame:
+        X_ = X.copy()
+        # categorical features
+        if self.cat_only:
+            cat_cols = X_.columns[(X_.dtypes == 'category').values]
+            X_[cat_cols] = X_[cat_cols].apply(
+                lambda x: x.cat.rename_categories(self.map_dict))
+            return X_
+        else:
+            return X_.replace(self.map_dict)
 
 # --- PIPING --- #
 
