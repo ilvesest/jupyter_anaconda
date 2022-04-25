@@ -6,11 +6,14 @@ import pandas as pd
 import numpy as np
 from scipy.stats import norm, linregress
  
+from bokeh.models import ColumnDataSource, HoverTool, RangeTool, \
+    BoxSelectTool, Range1d, LinearAxis, Legend, LegendItem, \
+    NumeralTickFormatter, DatetimeTickFormatter 
 
 from bokeh.plotting import figure, show
-from bokeh.models import ColumnDataSource, HoverTool, BoxSelectTool, \
-    NumeralTickFormatter, Range1d, LinearAxis, Legend
-from bokeh.palettes import Category20
+from bokeh.models.ranges import Range1d
+from bokeh.layouts import column, row
+from bokeh.palettes import Category10, Category20
 
 ### LINE PLOT ###
 def line(df, x, y, height=350, width=700, x_axis_type='auto'):
@@ -254,80 +257,91 @@ def box(df, x, y):
     show(p)
 
 ### HISTOGRAM ###
-def hist(df, feature, bins=50):
-    '''Plots bokeh histogram, PDF & CDF of a DF feature.
+def density_hist(df, feature, bins=50, plot_height=400, plot_width=700, 
+                 **fig_kwargs):
+    '''Plots numpy histogram with probability density function value at the
+    bin, normalized such that the integral over the range is 1. Additionally
+    plots PDF and Cumulative Density Function on the same figure.
     
     Parameters
     ----------
-    df : DataFrame
+    df : pd.DataFrame
         DF of the data.
     feature :  str
         Column name of the df.
-    bins : int
-        Number of bins to plot.
+    bins : int, default 50
+        Number of equally spaced bins to plot.
         
     Returns
     -------
-    None
+    fig : bokeh.plotting.figure.Figure
     '''
-    
-    #not nan feature values
+    # not nan feature values
     x = df[feature][df[feature].notna()].values 
     
-    #Get the values for the histogram and bin edges (length(hist)+1)/
-    #Use density to plot pdf and cdf on the same plot.
+    # Get the values for the histogram and bin edges (length(hist)+1)/
+    # Use density to plot pdf and cdf on the same plot.
     hist, edges = np.histogram(x, bins=bins, density=True)
     
     ### PDF & CDF ##
     
-    #find normal distribution parameters
+    # find normal distribution parameters
     mu, sigma = norm.fit(x)
     xs = np.linspace(min(x), max(x)+1, len(x)) #x values to plot the line(s)
     
-    pdf = norm.pdf(xs, loc=mu, scale=sigma) #probability distribution function
-    cdf = norm.cdf(xs, loc=mu, scale=sigma) #cumulative distribution function
+    pdf = norm.pdf(xs, loc=mu, scale=sigma) 
+    cdf = norm.cdf(xs, loc=mu, scale=sigma) 
     
-    #data sources for cdf
-    source_cdf = ColumnDataSource({'cdf':cdf, 'xs':xs})
+    # data sources for cdf
+    source_cdf = ColumnDataSource(
+        {'pdf':pdf, 'cdf':cdf, 'xs':xs, 'pdf_pc':pdf*100, 'cdf_pc':cdf*100})
     
-    #create the canvas
-    p1 = figure(title='Histogram, PDF & CDF', plot_height=400,
-                x_axis_label=feature, y_axis_label='Density')
+    # create the canvas
+    fig = figure(title=f"{feature} distribution", plot_height=plot_height,
+                 plot_width=plot_width,x_axis_label=feature, 
+                 y_axis_label='Density', **fig_kwargs)
     
-    #add histogram
-    p1.quad(bottom=0, top=hist, left=edges[:-1], right=edges[1:],
-          fill_color='royalblue', line_color='black', alpha=0.7)
-    
-    #add pdf
-    p1.line(xs, pdf, line_color='red', line_width=5, 
-            alpha=0.5, legend_label='PDF')
-    
-    #set left-hand y-axis range
-    p1.y_range = Range1d(0, max(hist) + 0.05*max(hist))
-    
-    #setting the second y axis range name and range
-    p1.extra_y_ranges = {"cdf": Range1d(start=0, end=1.05)}
-    
-    #adding the second y axis to the plot and to the right.  
-    p1.add_layout(LinearAxis(y_range_name="cdf", axis_label='CDF'), 'right')
+    # add histogram
+    fig.quad(bottom=0, top=hist, left=edges[:-1], right=edges[1:],
+             fill_color='royalblue', line_color='black', alpha=0.7,
+             legend_label=feature)
 
-    #add cdf with y range on the right
-    cdf_plot = p1.line('xs', 'cdf', source=source_cdf, alpha=0.8, 
+    # add pdf plot and hovertool 
+    pdf_plot = fig.line('xs', 'pdf', source=source_cdf, line_color='red', 
+                       line_width=5, alpha=0.5, legend_label='PDF')
+    
+    fig.add_tools(HoverTool(renderers=[pdf_plot], 
+                           tooltips=[('PDF', '@pdf_pc{0.000}%')],
+                           mode='vline'))
+    
+    # set left-hand y-axis range
+    fig.y_range = Range1d(0, max(hist) * 1.05)
+    
+    # setting the second y axis range name and range
+    fig.extra_y_ranges = {"cdf": Range1d(start=0, end=1.05)}
+    
+    # adding the second y axis to the plot and to the right.  
+    fig.add_layout(
+        LinearAxis(y_range_name="cdf", axis_label='CDF',
+                   formatter=NumeralTickFormatter(format="0%")), 'right')
+
+
+    # add cdf with y range on the right and hovertool
+    cdf_plot = fig.line('xs', 'cdf', source=source_cdf, alpha=0.8, 
                        line_color='darkgoldenrod', line_width=5, 
-                       legend_label='CDF', y_range_name='cdf', name='cdf',
-                       hover_line_color='green')
+                       legend_label='CDF', y_range_name='cdf', name='cdf')
     
-    #hover tool
-    p1.add_tools(HoverTool(renderers=[cdf_plot], tooltips=[('Prob', '@cdf{0.00}')],
-                           mode='hline'))
+    fig.add_tools(HoverTool(renderers=[cdf_plot], 
+                           tooltips=[('CDF', '@cdf_pc{0.0}%')],
+                           mode='vline'))
+
+    # figure properties
+    fig.xgrid.visible = False
     
-    #figure properties
-    p1.xgrid.visible = False
+    # hide entries when clicking on a legend
+    fig.legend.click_policy="hide"
     
-    #hide entries when clocking on a legend
-    p1.legend.click_policy="hide"
-    
-    show(p1)
+    return(fig)
 
 ### DOUBLE HISTOGRAM ###
 def double_hist(dfs, feature, names=['train', 'test'], bins=50):
@@ -386,3 +400,188 @@ def double_hist(dfs, feature, names=['train', 'test'], bins=50):
     
     show(p)
 
+### TIME-SERIES ###
+def calendar(
+    df : pd.DataFrame,
+    ys : [str],
+    exclude_values_dict : dict={}, 
+    include_values_dict : dict={},
+    ylabel : str=None,
+    **fig_kwargs):
+    """Plot (multi)line time series with other informative features. Bool dtypes
+    are included by default.
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with all data to be plotted with datetime index dtype.
+    ys : list, [str]
+        List of column names to be plotted as time series y values. First 
+        column name in the list is used for y_values for other columns.
+    exclude_values_dict : dict, default None
+        Dictionary of the form {column:[value_1, ... ,value_n] to be excluded
+        from plotting.
+    include_values_dict : dict, default None
+        Dictionary of the form {column:[value_1, ... ,value_n] to be included
+        to the resulting plot.
+    ylabel : str, default None
+        Y-label for time series y axis.
+    fig_kwargs : key-word arguments
+        Key-word arguments for main figure. E.g. width, height, title.
+        
+    Returns
+    -------
+    fig : bokeh.figure"""
+    
+    # dictionaries to contain different column names
+    len_exclude_dict = len(exclude_values_dict)
+    len_include_dict = len(include_values_dict)
+    if len_exclude_dict > 0 and len_include_dict > 0:
+        if len(set(exclude_values_dict.keys()) & 
+               set(include_values_dict.keys())) != 0:
+            raise ValueError("Dictionaries can't contain same columns!")
+    
+    x = df.index.name                           # index name
+    source = ColumnDataSource(df.reset_index()) # create bokeh source
+    
+    if ylabel == None: ylabel=ys[0]             # y-axis label
+        
+    # MAIN FIGURE #
+    fig = figure(
+        y_axis_label=ylabel,
+        x_axis_type='datetime',
+        **fig_kwargs)
+    
+    start_index = int(0.75 * len(source.data[x])) # explicitly set initial
+    start = source.data[x][start_index]           # range for the figure
+    end = source.data[x][-1]
+    fig.x_range = Range1d(start, end)
+    
+    # RANGETOOL FIGURE #
+    fig_rangetool = figure(
+        title='Range Tool',
+        height=130, 
+        width=fig.width, 
+        y_range=fig.y_range,
+        x_axis_type='datetime',
+        y_axis_type=None,
+        tools="",
+        toolbar_location=None,
+    )
+    
+    range_tool = RangeTool(x_range=fig.x_range)
+    range_tool.overlay.fill_color = "navy"
+    range_tool.overlay.fill_alpha = 0.2
+
+    fig_rangetool.ygrid.grid_line_color = None
+    fig_rangetool.add_tools(range_tool)
+    fig_rangetool.toolbar.active_multi = range_tool
+    
+    # x-axis tick format
+    x_range_delta = df.index[-1] - df.index[0]  # data range in days
+
+    dt_formatter = DatetimeTickFormatter(
+        milliseconds=["%H:%M:%S.%f"],
+        seconds=["%H:%M:%S"],
+        minutes=["%H:%M:%S"],
+        hours=["%H:%M:%S"],
+        days=["%d %B %Y"],
+        months=["%d %B %Y"],
+        years=["%d %B %Y"],
+    )
+    if x_range_delta <= pd.Timedelta(366, unit='D'):
+        dt_formatter.days = ["%b"]
+        dt_formatter.months = ["%b"]
+        dt_formatter.years = ["%Y"]
+        dt_hover_format = "%d %b"
+    fig.xaxis.formatter = dt_formatter
+    fig_rangetool.xaxis.formatter = dt_formatter
+    
+    # DATA #
+    bools = df.select_dtypes(bool).columns
+    features = [*ys, *bools, *exclude_values_dict.keys(), 
+                *include_values_dict.keys()]
+    palette = Category10 if len(features) < 11 else Category20
+    
+    legend_items = []
+    all_renderers = []
+    for name, color in zip(features, palette[len(features)]):
+        # init hovertool for each glyph on main
+        hover = HoverTool( 
+            tooltips=[(x, f"@{x}{{{dt_hover_format}}}")],
+            formatters={f"@{x}":'datetime'},
+            mode='vline')
+        
+        glyph_main = None
+        glyph_range = None
+        if name in ys:
+            # draw glyphs on mian and on range tool
+            glyph_main = fig.line(x=x, y=name, source=source, 
+                                  color=color, line_width=2)
+            glyph_range = fig_rangetool.line(x=x, y=name, source=source, 
+                                             color=color)
+            # add glyphs to renderers
+            renderers = [glyph_main, glyph_range]
+            all_renderers += renderers
+            
+            hover.tooltips.append((name, f"@{name}"))
+            legend_items.append(LegendItem(
+                label=f" {name}", renderers=renderers))
+            
+        else: 
+            cds = None
+            if name in bools: 
+                # query True values only 
+                true_idx = df[name][df[name] == True].index
+                temp_df = df[ys[0]].loc[true_idx].reset_index()
+                cds = ColumnDataSource(temp_df)
+            
+            elif name in exclude_values_dict.keys(): # values to exclude
+                idx = df[name][~df[name].isin(exclude_values_dict[name])] \
+                    .index
+                cds = ColumnDataSource(df.loc[idx,[ys[0],name]].reset_index())
+            
+            else: # values to include
+                idx = df[name][df[name].isin(include_values_dict[name])] \
+                    .index
+                cds = ColumnDataSource(df.loc[idx,[ys[0],name]].reset_index())
+            
+            # create glyphs
+            glyph_main = fig.circle(x=x, y=ys[0], source=cds, 
+                color=color, size=8, alpha=0.5)
+            glyph_range = fig_rangetool.circle(x=x, y=ys[0], 
+                source=cds, color=color, size=4, alpha=0.5)
+            
+            # add glyps to rednerers list
+            renderers = [glyph_main, glyph_range]
+            all_renderers += renderers
+            
+            # hover and legend
+            hover_string = "True" if name in bools else f"@{name}"
+            hover.tooltips.append((name, hover_string))
+            legend_items.append(LegendItem(
+                label=f" {name}", 
+                renderers=renderers))
+        
+        hover.renderers = [glyph_main] # for HoverTool
+        all_renderers += renderers # for legend
+        
+        fig.add_tools(hover)
+
+    # Dummy fig for legend
+    fig_legend = figure(width=130, height=fig.height + 130, 
+                        outline_line_alpha=0,toolbar_location=None,
+                        border_fill_color='#ffffff')
+    
+    # set the components of the figure invisible
+    for fig_component in [fig_legend.grid[0], fig_legend.ygrid[0],
+                          fig_legend.xaxis[0], fig_legend.yaxis[0]]:
+        fig_component.visible = False
+    
+    # set the figure range outside of the range of all glyphs
+    fig_legend.renderers += all_renderers
+    fig_legend.x_range.end = fig.x_range.end + pd.Timedelta(365, unit='D')
+    fig_legend.x_range.start = fig.x_range.start + pd.Timedelta(360, unit='D')
+    fig_legend.add_layout(Legend(click_policy = "hide", location='center', 
+                                 items=legend_items, border_line_width=2))
+    
+    return show(row(column(fig,fig_rangetool), fig_legend))
