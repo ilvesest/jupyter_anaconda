@@ -4,14 +4,13 @@ Python file for accessing custom made bokeh plots.
 """
 import pandas as pd
 import numpy as np
-from scipy.stats import norm, linregress
+from scipy.stats import norm, linregress, skew, skewtest
  
 from bokeh.models import ColumnDataSource, HoverTool, RangeTool, \
     BoxSelectTool, Range1d, LinearAxis, Legend, LegendItem, \
-    NumeralTickFormatter, DatetimeTickFormatter 
+    NumeralTickFormatter, DatetimeTickFormatter, Label
 
 from bokeh.plotting import figure, show
-from bokeh.models.ranges import Range1d
 from bokeh.layouts import column, row
 from bokeh.palettes import Category10, Category20
 
@@ -257,7 +256,11 @@ def box(df, x, y):
     show(p)
 
 ### HISTOGRAM ###
-def density_hist(df, feature, bins=50, plot_height=400, plot_width=700, 
+def density_hist(df : pd.DataFrame, 
+                 feature : str, 
+                 bins : int=50, 
+                 plot_height : int=400, 
+                 plot_width : int=700, 
                  **fig_kwargs):
     '''Plots numpy histogram with probability density function value at the
     bin, normalized such that the integral over the range is 1. Additionally
@@ -294,7 +297,7 @@ def density_hist(df, feature, bins=50, plot_height=400, plot_width=700,
     
     # data sources for cdf
     source_cdf = ColumnDataSource(
-        {'pdf':pdf, 'cdf':cdf, 'xs':xs, 'pdf_pc':pdf*100, 'cdf_pc':cdf*100})
+        {'pdf':pdf, 'cdf':cdf, 'xs':xs, 'cdf_pc':cdf * 100})
     
     # create the canvas
     fig = figure(title=f"{feature} distribution", plot_height=plot_height,
@@ -311,7 +314,7 @@ def density_hist(df, feature, bins=50, plot_height=400, plot_width=700,
                        line_width=5, alpha=0.5, legend_label='PDF')
     
     fig.add_tools(HoverTool(renderers=[pdf_plot], 
-                           tooltips=[('PDF', '@pdf_pc{0.000}%')],
+                           tooltips=[('PDF', '@pdf')],
                            mode='vline'))
     
     # set left-hand y-axis range
@@ -324,8 +327,7 @@ def density_hist(df, feature, bins=50, plot_height=400, plot_width=700,
     fig.add_layout(
         LinearAxis(y_range_name="cdf", axis_label='CDF',
                    formatter=NumeralTickFormatter(format="0%")), 'right')
-
-
+    
     # add cdf with y range on the right and hovertool
     cdf_plot = fig.line('xs', 'cdf', source=source_cdf, alpha=0.8, 
                        line_color='darkgoldenrod', line_width=5, 
@@ -341,7 +343,44 @@ def density_hist(df, feature, bins=50, plot_height=400, plot_width=700,
     # hide entries when clicking on a legend
     fig.legend.click_policy="hide"
     
-    return(fig)
+    # add figure below for statistics
+    fig_stats = figure(width=fig.width, height=50, outline_line_alpha=1,
+                       toolbar_location=None, x_range=[0,1], 
+                       y_range=[0,1], tools='')
+    
+    # set the components of the stats figure invisible
+    for fig_component in [fig_stats.grid[0], fig_stats.ygrid[0],
+                          fig_stats.xaxis[0], fig_stats.yaxis[0]]:
+        fig_component.visible = False
+    
+    # statistics to test normality
+    skew_test = skewtest(df[feature])
+    skew_ = skew(df[feature])
+    
+    # annotation texts
+    skewtest_label = Label(x=0.5, y=0.5, text_color='#FFFFFF', 
+        render_mode='canvas', text_font_size='14px',
+        text="Skewtest:", text_align='center')
+    
+    skew_zscore = Label(x=0.1, y=0.05, text_color='#FFFFFF', 
+        render_mode='canvas', text_font_size='13px',
+        text=f"z-score: {skew_test[0]:.2f}", text_align='left')
+    
+    skew_pvalue = Label(x=0.5, y=0.05, text_color='#FFFFFF', 
+        render_mode='canvas', text_font_size='13px',
+        text=f"p-value: {skew_test[1]:.2f}", text_align='center')
+    
+    skew_value = Label(x=0.9, y=0.05, text_color='#FFFFFF', 
+        render_mode='canvas', text_font_size='13px',
+        text=f"skew: {skew_:.2f}", text_align='right')
+    
+    # add annotations to the plot
+    fig_stats.add_layout(skewtest_label)
+    fig_stats.add_layout(skew_zscore)
+    fig_stats.add_layout(skew_pvalue)
+    fig_stats.add_layout(skew_value)
+    
+    return show(column([fig, fig_stats]))
 
 ### DOUBLE HISTOGRAM ###
 def double_hist(dfs, feature, names=['train', 'test'], bins=50):
