@@ -4,14 +4,21 @@ Python file for accessing custom made bokeh plots.
 """
 import pandas as pd
 import numpy as np
+
+import scipy
 from scipy.stats import norm, linregress, skew, skewtest
- 
-from bokeh.models import ColumnDataSource, HoverTool, RangeTool, \
-    BoxSelectTool, Range1d, LinearAxis, Legend, LegendItem, \
-    NumeralTickFormatter, DatetimeTickFormatter, Label
+
+import pandas_bokeh
+
+from statsmodels.tsa.stattools import pacf
+
+from bokeh.models import ColumnDataSource, CDSView, GroupFilter, \
+    HoverTool, RangeTool, BoxSelectTool, \
+    Range1d, LinearAxis, Legend, LegendItem, Label, \
+    NumeralTickFormatter, DatetimeTickFormatter
 
 from bokeh.plotting import figure, show
-from bokeh.layouts import column, row
+from bokeh.layouts import column, row, gridplot
 from bokeh.palettes import Category10, Category20
 
 ### LINE PLOT ###
@@ -624,3 +631,304 @@ def calendar(
                                  items=legend_items, border_line_width=2))
     
     return show(row(column(fig,fig_rangetool), fig_legend))
+
+def periodogram(ts: [pd.Series, pd.DataFrame], **kwargs):
+    """Plot bokeh periodogram wrapped around scipy.signal.periodogogram.
+    
+    Parameters
+    ----------
+    ts : pd.Series or pd.Dataframe
+        Pandas series or DataFrame with all columns to be plotted.
+    kwargs : key-word args
+        Key-word arguments for plot_bokeh figure.
+    Returns
+    -------
+    None
+    """
+    # convert ts to dataframe if series
+    df = ts.to_frame() if isinstance(ts, pd.Series) else ts
+    
+    # determine sampling frequency
+    sampling_f = pd.Timedelta('365D') / pd.Timedelta('1D')
+    
+    temp_df = pd.DataFrame() # init empty df
+    for col in df.columns:
+        # create periodogram profile(s)
+        frequencies, spectrum = scipy.signal.periodogram(
+            x=df[col],
+            fs=sampling_f,
+            window='boxcar',
+            detrend='linear',
+            scaling='spectrum')
+    
+        if temp_df.empty: temp_df.index = frequencies # add x if not already
+        temp_df[col] = spectrum # add spectrum per column
+    
+    # periodogram nice xticks
+    period_coefs = [1, 2, 4, 6, 12, 26, 52, 104] 
+    periods = ["Annual (1)",
+               "Semiannual (2)",
+               "Quarterly (4)",
+               "Bimonthly (6)",
+               "Monthly (12)",
+               "Biweekly (26)",
+               "Weekly (52)",
+               "Semiweekly (104)"]
+    periods_dct = {coef:period for coef,period in zip(period_coefs, periods)}
+    
+    # define colormap 
+    colormap = 'Plasma' if len(temp_df.columns) > 2 else ['purple', 'goldenrod']
+    
+    # draw the plot
+    a = temp_df.plot_bokeh(
+        kind='step', 
+        x=temp_df.index, 
+        y=list(temp_df.columns), 
+        logx=True,
+        xticks=period_coefs,
+        ylabel='Variance',
+        xlabel='',
+        title='Periodogram',
+        colormap=colormap,
+        show_figure=False,
+        **kwargs)
+    
+    # override xticks with nice values and layout
+    a.xaxis.major_label_overrides = periods_dct
+    a.xaxis.major_label_orientation = np.pi / 6
+
+    show(a)
+
+def correlogram(x: [[], np.array, pd.Series, pd.DataFrame], 
+                lags: int, 
+                zero: bool=False, 
+                show_figure: bool=True, 
+                **fig_kwargs):
+    
+    """Plot n specified autocorrelation lags. Based on 
+    statsmodels.tsa.stattools.pacf estimate.
+    
+    Parameters
+    ----------
+    x : array-like
+        Observations of time series for which pacf is calculated.
+    lags : int
+        Number of lags to return autocorrelation for. 
+    zero : bool, default False
+        Flag indicating whether to include the 0-lag autocorrelation.
+    show_figure : bool, default True
+        Weather to show figure or return the bokeh.figure axis.
+    kwargs** : keyword arguments, optional
+        Optional keyword arguments of bokeh.plotting.figure.Figure. E.g. 
+        'plot_width', 'plot_height'. 
+        
+    Returns
+    -------
+    Figure : figure, None, default None
+        If show_figure is True returns None (shwos the figure), otherwise
+        returns figure to which axis is connected."""
+    
+    # lags as x-values
+    xs = [*np.arange(0, lags+1)] if zero else [*np.arange(1, lags+1)]
+    
+    # partial autocorrelation values as ys and confidence intervals
+    auto_corrs, ci = pacf(x=x, nlags=lags, alpha=.05) 
+    
+    # remove first 0th lag
+    if not zero:
+        auto_corrs = auto_corrs[1:]
+        ci = ci[1:]
+    
+    ci = [arr - pa for arr, pa in zip(ci, auto_corrs)] # confidence intervals
+    ci_cutoff = abs(ci[0][0])
+    
+    # prepare the data into df
+    df = pd.DataFrame({'x': xs, 'y': auto_corrs})
+    df['high_low'] = df['y'].apply(lambda x: 'high' if abs(x) >= ci_cutoff else 'low')
+    df['xs_multi'] = df['x'].apply(lambda x: [x, x])
+    df['ys_multi'] = df['y'].apply(lambda x: [0, x])
+    
+    # create CDS and Views
+    source = ColumnDataSource(df)
+    view_low = CDSView(source=source, 
+        filters=[GroupFilter(column_name='high_low', group='low')])
+    view_high = CDSView(source=source, 
+        filters=[GroupFilter(column_name='high_low', group='high')])
+    
+    # init main figure
+    fig = figure(**fig_kwargs, title='Partial Autocorrelation', 
+                 x_axis_label=f'{x.name} Lags', y_axis_label='Partial Correlation')
+    
+    fig.x_range = Range1d(0, lags + 1) # explicitly set initial range
+    baseline = fig.line(x=[-10, lags + 10], y=[0, 0], line_width=3)
+    
+    legend_items = []
+    hover_renderers = []
+    all_renderers = []
+    for view_, type_, name_, size_ in zip(
+        [view_low, view_high], ['circle', 'star'], 
+        ['Insignificant','Significant'], [5, 9]):
+        
+        # draw vertical lines and circles
+        multi_line = fig.multi_line(
+            xs='xs_multi',
+            ys='ys_multi',
+            source=source,
+            view=view_,
+            line_color='#1f77b4',
+            line_width=3,
+            hover_line_color='goldenrod')
+    
+        # draw circles or stars
+        glyphs = fig.scatter(x='x', y='y', source=source, view=view_, 
+                             size=size_, color='#1f77b4', marker=type_,
+                             hover_fill_color='goldenrod', 
+                             hover_line_color='goldenrod')
+        
+        # store renderers
+        renderers = [multi_line, glyphs]
+        legend_items.append(LegendItem(label=f"{name_}", renderers=renderers))
+        hover_renderers += [multi_line]
+        all_renderers += renderers
+        
+    # add HoverTool    
+    hover = HoverTool(renderers=hover_renderers,
+                          tooltips=[('PACF', "@y{0.00}"),('Lag', "@x")],
+                          line_policy='interp')
+    fig.add_tools(hover)
+        
+    # draw 95% confidence intervals
+    ci = fig.varea(x=xs, 
+                   y1=[i[0] for i in ci],
+                   y2=[i[1] for i in ci],
+                   alpha=0.10)
+    
+    legend_items.append(LegendItem(label="95% CI", renderers=[ci]))
+    fig.add_layout(Legend(click_policy='hide', items=legend_items))
+    
+    if show_figure:
+        show(fig)
+    else:
+        return fig
+
+def lag_plot(x: pd.Series, 
+             y=None,
+             lag: int=1, 
+             lead: int=None, 
+             standardize: bool=False,
+             show_figure: bool=False,
+             **fig_kwargs):
+    """Plot n-th lag or lead scatter plot with regression fit.
+    
+    Parameters
+    ----------
+    x : pd.Series
+        Pandas series of a feature to be plotted.
+    y : array-like, default None"
+        Pre-computed lag or lead array of values.
+    lag: int, default 1
+        Shift x values n-units forward.
+    lead : int, default None
+        Shift x values n-units backward.
+    standardize : bool, default False
+        Wether to normalize the data or not.
+    show_figure: bool, default False
+        Return figure axis or show the figure.
+    fig_kwargs : key-word args
+        Figure key-word arguments like: plot_height, plot_width,
+    
+    Returns
+    -------
+    Figure : figure, None, default None
+        If show_figure is True returns None (shwos the figure), otherwise
+        returns figure to which axis is connected."""
+    
+    # check both lag and lead are not None
+    if lag == lead == None:
+        raise ValueError("Both lag and lead can't be None!")
+    elif type(lag) == type(lead) == int:
+        raise ValueError("Both lag and lead can't be specified!")
+    
+    # create lag or lead
+    type_ = 'lag'
+    number_ = lag
+    if lead is not None:
+        x_ = x.shift(-lead)
+        type_ = 'lead'
+        number_ = lead
+    else:
+        x_ = x.shift(lag)
+    
+    # standardize if specified
+    if standardize:
+        x_ = (x_ - x_.mean()) / x_.std()
+    if y is not None:
+        y_ = (y - y.mean()) / y.std() if standardize else y
+    else:
+        y_ = x
+    
+    x_ = x_.dropna() # drop NaN-s
+    x_, y_ = x_.align(y_, join='left')
+    
+    # init main figure
+    fig = figure(
+        title=f"{type_.capitalize()} {number_}", 
+        y_axis_label=f"{x.name}", 
+        x_axis_label=f"{x.name}_{type_}_{number_}",
+        **fig_kwargs)
+    
+    source = ColumnDataSource({f"{x.name}{type_}":x_, x.name:y_})
+    
+    # plot scatter
+    scatter = fig.circle(x=f"{x.name}{type_}", y=x.name, source=source, 
+                         size=7, hover_fill_color='goldenrod',
+                         hover_line_color='goldenrod')
+    
+    # plot regression fit
+    slope, intercept, rvalue, pvalue, stderr = linregress(x=x_, y=y_)
+    
+    fig.line(x=x_, y=slope * x_ + intercept, color='red', alpha=0.75,
+             line_width=5, legend_label=f"r = {rvalue:.2f}")
+    
+    # add hovertool
+    hover = HoverTool(
+        renderers=[scatter],
+        tooltips=[(f"{x.name}", f"@{x.name}"),
+                  (f"{type_}", f"@{x.name}{type_}")])
+    
+    fig.add_tools(hover)
+    
+    # hide entries when clicking on a legend
+    fig.legend.click_policy="hide"
+    
+    if show_figure:
+        return show(fig)
+    else:
+        return fig    
+
+def plot_lags(x: pd.Series, 
+              y=None,
+              lags: [int, [int]]=None,
+              leads: [int, [int]]=None,
+              ncols: int=4,
+              **grid_kwargs):
+
+    
+    # list of leads and lags actual values 
+    leads_ = [*range(1,leads+1)] if type(leads) == int else leads
+    lags_ = [*range(1,lags+1)] if type(lags) == int else lags
+    
+    all_plots = []
+    if leads is not None:
+        for lead in leads_:
+            temp_fig = lag_plot(x=x, y=y, lag=None, lead=lead)
+            all_plots.append(temp_fig)
+    if lags is not None:
+        for lag in lags_:
+            temp_fig = lag_plot(x=x, y=y, lag=lag, lead=None)
+            all_plots.append(temp_fig)
+    
+    grid = gridplot(all_plots, ncols=ncols, **grid_kwargs)
+    show(grid)
+
+    
