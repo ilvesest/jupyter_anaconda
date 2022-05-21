@@ -5,7 +5,7 @@ Python file for accessing custom made bokeh plots.
 import pandas as pd
 import numpy as np
 
-import scipy
+from scipy import stats
 from scipy.stats import norm, linregress, skew, skewtest, pearsonr
 
 import pandas_bokeh
@@ -82,6 +82,7 @@ def line(df, x, y, height=350, width=700, x_axis_type='auto'):
 
     show(p)
 
+
 ### SCATTER PLOT ###
 def scatter(df, x, y, reg=False):
     '''Plots bokeh scatter plot.
@@ -137,6 +138,8 @@ def scatter(df, x, y, reg=False):
     # show the results
     show(p)
 
+
+### SCATTER + REGRESSION PLOT ###
 def regplot(df: pd.DataFrame, 
             x: str, 
             y: str,
@@ -238,104 +241,8 @@ def regplot(df: pd.DataFrame,
         return show(fig)
     else:
         return fig
-            x: str, 
-            y: str,
-            reg: bool=True,
-            alpha: float=0.95,
-            extra_hover_tooltips: [tuple]=None,
-            hover_formatters: dict=None,
-            show_figure=True,
-            **fig_kwargs):
-    '''Plots bokeh scatter plot.
-    Parameters
-    ----------
-    df : dict / DataFrame
-         Dictionary or pandas DataFrame where plotting data resides.
-    x : str
-         Key or column name for data in x-axis.
-    y : str
-         Key or column name for data in y-axis.
-    reg : bool, default True
-        To plot regression line or not. Default False.
-    alpha : float, default 0.95
-        Probability that random variable will be drawn from the returned 
-        range. Confidence interval.
-    extra_hover_tooltips : list of tuples, default None
-        List of hover tool tooltips of the form [('name', '@name{}'), ... ,]
-    hover_formatters : dict, default None
-        Dictionary of hover tool tooltip formatters of the form 
-        {'name': 'datetime'}.
-        
-    Returns
-    -------
-    Figure : bokeh.figure, default None
-        IIf show_figure is True returns None (shwos the figure), otherwise
-        returns figure to which axis is connected.'''
-    
-    df = df.reset_index()
-    source = ColumnDataSource(df) # bokeh source object
-    
-    # init the figure/canvas for the plot
-    fig = figure(**fig_kwargs, 
-                 title=f"{x} vs {y}",
-                 x_axis_label=x, 
-                 y_axis_label=y)
-    
-    # add data to figure
-    circle = fig.circle(x, y, size=10, alpha=0.75, source=source, 
-                        hover_fill_color='goldenrod',
-                        hover_line_color='goldenrod',
-                        selection_fill_color='goldenrod')
-    
-    # synthetic x values for regression lines
-    xs = np.linspace(df[x].min(), df[x].max() + 1, num=len(df[x]))
-    colors = ['red', 'green']
-    orders = ['1st Order', '2nd Order']
-    legend_items = []
-    
-    # add regression lines and confidence intervals
-    if reg: 
-        for order, name, color in zip([1,2], orders, colors):
-            # calculate Confidence Interval
-            ci_95 = norm.interval(
-                alpha=alpha,            # confidence interval
-                loc=0,                  # mean of the distribution
-                scale=scipy.stats.sem(df[y])) # standard error of the mean
 
-            # find polynomial coefficients, highest degree to lowest
-            coefs = np.polyfit(x=df[x], y=df[y], deg=order)
-            ys = coefs[0] * xs + coefs[1] if order == 1 else \
-                 (coefs[0] * xs ** 2) + (coefs[1] * xs) + coefs[2]
 
-            # plot regression line and confidence intervals
-            reg_line = fig.line(x=xs, y=ys, 
-                                color=color, alpha=0.75, line_width=5)
-
-            # plot regression confidnece intervals
-            ci = fig.varea(x=xs, y1=ys + ci_95[0], y2=ys + ci_95[1],
-                           alpha=0.25, color=color)
-            
-            # calculate Pearson correlation coefficient
-            r = pearsonr(df[x] ** order, df[y])[0]
-            
-            # add legend items
-            legend_items.append(LegendItem(label=f"{name} r = {r:.2f}", 
-                                           renderers=[reg_line, ci]))
-    # add hover tool
-    hover = HoverTool(
-        renderers=[circle], 
-        tooltips=[(y, f"@{y}"), (x, f"@{x}"), *extra_hover_tooltips],
-        formatters=hover_formatters)
-    
-    # add tools and legend to figure
-    fig.add_tools(hover, BoxSelectTool())
-    fig.add_layout(Legend(click_policy='hide', items=legend_items))
-    
-    if show_figure:
-        return show(fig)
-    else:
-        return fig
-    
 ### BOX PLOT ###
 def box(df, x, y):
     """Plots bokeh box plot.
@@ -461,7 +368,8 @@ def box(df, x, y):
 
     show(p)
 
-### HISTOGRAM ###
+
+### NORMALIZED HISTOGRAM ###
 def density_hist(df : pd.DataFrame, 
                  feature : str, 
                  bins : int=50, 
@@ -588,6 +496,7 @@ def density_hist(df : pd.DataFrame,
     
     return show(column([fig, fig_stats]))
 
+
 ### DOUBLE HISTOGRAM ###
 def double_hist(dfs, feature, names=['train', 'test'], bins=50):
     """Plotting 2 histograms side by side.
@@ -645,6 +554,7 @@ def double_hist(dfs, feature, names=['train', 'test'], bins=50):
     
     show(p)
 
+
 ### TIME-SERIES ###
 def calendar(
     df : pd.DataFrame,
@@ -652,7 +562,8 @@ def calendar(
     exclude_values_dict : dict={}, 
     include_values_dict : dict={},
     ylabel : str=None,
-    show_figure: bool=True,
+    hover_format : str=None,
+    show_figure : bool=True,
     **fig_kwargs):
     """Plot (multi)line time series with other informative features. Bool dtypes
     are included by default.
@@ -671,6 +582,8 @@ def calendar(
         to the resulting plot.
     ylabel : str, default None
         Y-label for time series y axis.
+    hover_format : str, default None
+        Format of the hover tool datetime values. 
     show_figure : bool, default True
         Weather to show figure or return the bokeh.figure axis.
     fig_kwargs : key-word arguments
@@ -718,7 +631,7 @@ def calendar(
     
     range_tool = RangeTool(x_range=fig.x_range)
     range_tool.overlay.fill_color = "navy"
-    range_tool.overlay.fill_alpha = 0.2
+    range_tool.overlay.fill_alpha = 0.4
 
     fig_rangetool.ygrid.grid_line_color = None
     fig_rangetool.add_tools(range_tool)
@@ -740,6 +653,8 @@ def calendar(
         dt_formatter.months = ["%b"]
         dt_formatter.years = ["%Y"]
         dt_hover_format = "%d %b"
+        
+    dt_hover_format = dt_hover_format if hover_format is None else hover_format 
     fig.xaxis.formatter = dt_formatter
     fig_rangetool.xaxis.formatter = dt_formatter
     
@@ -747,11 +662,14 @@ def calendar(
     bools = df.select_dtypes(bool).columns
     features = [*ys, *bools, *exclude_values_dict.keys(), 
                 *include_values_dict.keys()]
-    palette = Category10 if len(features) < 11 else Category20
+    n_features = len(features) # number of features
+    # determine glyph colors
+    palette = Category10 if n_features < 11 else Category20
+    colors = ['blue', 'orange'] if n_features < 3 else palette[n_features]
     
     legend_items = []
     all_renderers = []
-    for name, color in zip(features, palette[len(features)]):
+    for name, color in zip(features, colors):
         # init hovertool for each glyph on main
         hover = HoverTool( 
             tooltips=[(x, f"@{x}{{{dt_hover_format}}}")],
