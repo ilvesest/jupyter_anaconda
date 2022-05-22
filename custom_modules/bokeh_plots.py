@@ -4,6 +4,7 @@ Python file for accessing custom made bokeh plots.
 """
 import pandas as pd
 import numpy as np
+import scipy as sp
 
 from scipy import stats
 from scipy.stats import norm, linregress, skew, skewtest, pearsonr
@@ -19,7 +20,7 @@ from bokeh.models import ColumnDataSource, CDSView, GroupFilter, \
 
 from bokeh.plotting import figure, show
 from bokeh.layouts import column, row, gridplot
-from bokeh.palettes import Category10, Category20
+from bokeh.palettes import Category10, Category20, Plasma
 
 ### LINE PLOT ###
 def line(df, x, y, height=350, width=700, x_axis_type='auto'):
@@ -754,7 +755,113 @@ def calendar(
     else:
         return row(column(fig,fig_rangetool), fig_legend)
 
-def periodogram(ts: [pd.Series, pd.DataFrame], **kwargs):
+def periodogram(ts: [pd.Series, pd.DataFrame],
+                 show_figure: bool=True,
+                 **fig_kwargs):
+    """Plot bokeh periodogram wrapped around scipy.signal.periodogogram.
+    
+    Parameters
+    ----------
+    ts : pd.Series or pd.Dataframe
+        Pandas series or DataFrame with all columns to be plotted.
+    show_figure : bool, default True
+        Weather to show figure or return the bokeh.figure axis.
+    fig_kwargs : key-word args
+        Key-word arguments for plot_bokeh figure.
+    Returns
+    -------
+    None
+    """
+    # periodogram nice xticks
+    period_coefs = [1, 2, 4, 6, 12, 26, 52, 104] 
+    periods = ["Annual (1)",
+               "Semiannual (2)",
+               "Quarterly (4)",
+               "Bimonthly (6)",
+               "Monthly (12)",
+               "Biweekly (26)",
+               "Weekly (52)",
+               "Semiweekly (104)"]
+    periods_dct = {coef:period for coef,period in zip(period_coefs, periods)}
+    
+    # convert ts to dataframe if series
+    df = ts.to_frame() if isinstance(ts, pd.Series) else ts
+    
+    # determine sampling frequency
+    sampling_f = pd.Timedelta('365D') / pd.Timedelta('1D')
+    
+    temp_df = pd.DataFrame() # init empty df
+    for col in df.columns:
+        # create periodogram profile(s)
+        frequencies, spectrum = sp.signal.periodogram(
+            x=df[col],
+            fs=sampling_f,
+            window='boxcar',
+            detrend='linear',
+            scaling='spectrum')
+    
+        if temp_df.empty: 
+            temp_df.index = frequencies # add x if not already
+        temp_df[col] = spectrum # add spectrum per column
+    
+    temp_df.index.name = 'period' # name the index
+    
+    # create period categorical names
+    temp_df['period_cat'] = "Semiweekly"
+    for i, period in enumerate(period_coefs):
+        if i == len(period_coefs) - 1: 
+            break
+        start = 0 if i == 0 else (period_coefs[i-1] + period) / 2
+        next_period = period_coefs[i+1]
+        end = (next_period + period_coefs[i+2]) / 2 if i != 6 else 78
+        temp_df.loc[start:end, 'period_cat'] = periods_dct[period][:-4]
+    
+    source = ColumnDataSource(temp_df.reset_index()) # init source
+    
+    # define pallette
+    n_cols = len(temp_df.columns)
+    colors = ['purple', 'goldenrod']
+    pallette = Plasma[n_cols] if n_cols > 2 else \
+               (colors[0] if n_cols == 1 else colors)
+    
+    # create the figure
+    fig = figure(title="Periodogram",
+                 x_axis_label="Period",
+                 y_axis_label='Variance',
+                 x_axis_type="log",
+                 **fig_kwargs)
+    
+    # remap to nice xticks and rotate labels to fit
+    fig.xaxis.ticker = period_coefs
+    fig.xaxis.major_label_overrides = periods_dct
+    fig.xaxis.major_label_orientation = np.pi / 6
+    
+    # create graphs and store renderers and legend items
+    all_renderers = []
+    legend_items = []
+    for name, color in zip(temp_df.columns, pallette):
+        # add step glyphs
+        step = fig.step(x='period', y=name, source=source, color=color, 
+                        line_width=4, mode="before")
+        
+        circle = fig.circle(x='period', y=name, source=source, size=10,
+                            alpha=0)
+        renderers = [step, circle]
+        hover = HoverTool(tooltips=[(name ,f"@{name}"), ("period", "@period_cat")], 
+                          renderers=[circle], point_policy='snap_to_data', 
+                          mode='vline')
+        fig.add_tools(hover)
+        
+        legend_items.append(LegendItem(label=f"{name}", renderers=renderers))
+        all_renderers += renderers
+    
+    # add legend
+    fig.add_layout(Legend(click_policy='hide', items=legend_items))
+    
+    if show_figure:
+        show(fig)
+    else:
+        return fig
     """Plot bokeh periodogram wrapped around scipy.signal.periodogogram.
     
     Parameters
