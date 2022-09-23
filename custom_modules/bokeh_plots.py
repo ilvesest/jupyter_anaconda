@@ -18,9 +18,10 @@ from bokeh.models import ColumnDataSource, CDSView, GroupFilter, \
     Range1d, LinearAxis, Legend, LegendItem, Label, \
     NumeralTickFormatter, DatetimeTickFormatter
 
+from bokeh.io import curdoc
 from bokeh.plotting import figure, show
 from bokeh.layouts import column, row, gridplot
-from bokeh.palettes import Category10, Category20, Plasma
+from bokeh.palettes import Category10, Category20, Plasma, Viridis256
 
 ### LINE PLOT ###
 def line(df, x, y, height=350, width=700, x_axis_type='auto'):
@@ -245,32 +246,63 @@ def regplot(df: pd.DataFrame,
 
 
 ### BOX PLOT ###
-def box(df, x, y):
-    """Plots bokeh box plot.
+def box(df: pd.DataFrame, 
+        x: str, 
+        y: str, 
+        sort_by: str=None,
+        ascending: bool=True,
+        title: str=None,
+        xlabel: str=None,
+        ylabel: str=None,
+        y_axis_format: str='0,0',
+        hover_mean_format: str= '0.0',
+        height: int=400,
+        show_figure: bool=True,
+        **fig_kwargs):
+    """Plots bokeh box plot to show distributions with respect to categories.
     
     Parameters
     ----------
-    df : DataFrame
+    df : pd.DataFrame
         DataFrame with all necessary data.
     x : str
         DataFrame column name for the x axis.
     y : str
         DataFrame column name for the y axis.
-        
+    sort_by : str, default None
+        If None the resulting boxes are sorted by mean value. Boxes are sorted
+        by provided DataFrame column name. 
+    ascending : bool, default True
+        Wether to sort categories ascendingly or descendigly when sort == True.
+    title : str, default 'Distribution of y by x'
+        Title of the figure.
+    x_label : str, default x
+        X axis label.
+    y_label : str, default y
+        Y axis label.
+    y_axis_format : str, default '0,0'
+        Bokeh NumeralTickFormatter number format.
+    hover_mean_format : str, default '0.0'
+        Bokeh HoverTool tooltip format.
+    height : int, default 400
+        Figure height in pixels.
+    show_figure : bool, default True
+        Weather to show figure or return the bokeh.figure axis.   
+    fig_kwargs : key-word arguments
+        Key-word arguments for main figure. E.g. width, height, title.
     Returns
     -------
-    None
+    fig : bokeh.figure
     """
-
-    #string class values sorted alphabetically
-    #and numeric class values ascendingly
+    
+    # string class values sorted alphabetically numeric ascendingly
     classes = sorted(df[x].unique())
     
-    #group data by feature class values, returns DataFrameGroupBy object.
+    # group data by feature class values, returns DataFrameGroupBy object.
     groups = df[[x,y]].groupby(x)
     
-    #find the quartiles and IQR for each class in the categorical data.
-    #returned values are df-s
+    # find the quartiles and IQR for each class in the categorical data.
+    # returned values are df-s
     q_25 = groups.quantile(q=0.25)
     q_50 = groups.quantile(q=0.5)
     q_75 = groups.quantile(q=0.75)
@@ -278,97 +310,128 @@ def box(df, x, y):
     upper = q_75 + 1.5*iqr
     lower = q_25 - 1.5*iqr
 
-    #find the outliers for each class
+    # find the outliers for each class
     def outliers(group):
         class_name = group.name
         return group[(group[y] > upper.loc[class_name][y]) |
                      (group[y] < lower.loc[class_name][y])][y]
     
-    #multindex (class, range index) series
+    # multindex (class, range index) series
     out = groups.apply(outliers).dropna().reset_index() 
 
-    #sort outlier index values by mean class mean value
+    # sort outlier index values by mean class mean value
     out = pd.merge(left=q_50, right=out, how='outer', on=x, 
                    suffixes=('_mean', '')).sort_values(
                    by=y+'_mean').set_index(x)
     
-    #construct outlier coordinates (if outliers excist)
+    # construct outlier coordinates (if outliers excist)
     if not out.empty:
-        outx = out.index.values.astype('str') #class names for x coordinates
-        outy = out[y] #y values
+        outx = out.index.values.astype('str') # class names for x coordinates
+        outy = out[y] # y values
     
-    #if no outliers, shrink lengths of stems to be 
-    #no longer than the minimums or maximums
+    # if no outliers, shrink lengths of stems to be 
+    # no longer than the minimums or maximums
     qmin = groups.quantile(q=0.00)
     qmax = groups.quantile(q=1.00)
     lower[y] = [max([x2,y2]) for (x2,y2) in zip(list(qmin.loc[:,y]), lower[y])]
     upper[y] = [min([x2,y2]) for (x2,y2) in zip(list(qmax.loc[:,y]), upper[y])]
-    
-    #defining colors for x number of classes
-    if len(classes) == 0 or len(classes) == 1:
+
+    # defining colors for n number of classes
+    n = len(classes) 
+    if n <= 1:
         colors = ['blue']
-    if len(classes) == 2:
+    if n == 2:
         colors = ['blue','green']
+    if n <= 20:
+        colors = Category20[n]
     else:
-        colors = Category20[len(classes)]
+        # select colors uniformly along the spectrum to have variance
+        every_nth = 256 // n
+        colors = [Viridis256[i] for i in np.arange(0, every_nth * n, 10)]
     
-    #create df of the data for the boxes
-    box_df = pd.DataFrame(data={'classes':classes, 'q_25':q_25[y], 'q_50':q_50[y],'q_75':q_75[y],
-                            'upper':upper[y], 'lower':lower[y], 'color':colors}).sort_values(
-                            by='q_50', ascending=False)
+    # create df of the data for the boxes
+    box_df = pd.DataFrame(data={
+        'classes':classes, 'q_25':q_25[y], 'q_50':q_50[y],'q_75':q_75[y],
+        'upper':upper[y], 'lower':lower[y], 'color':colors})
     
-    #force 'class' dtype to be str
+    # add sort_by column to data
+    if sort_by is not None:
+        box_df[sort_by] = box_df['classes'].apply(lambda i: df[df[x]==i][sort_by][0])
+
+    # force 'class' dtype to be str
     box_df['classes'] = box_df['classes'].astype(str)
     
-    #creating the bokeh source obj
+    # sort data by class values (alphabetically or ascendingly)
+    box_df = box_df.sort_values(by=sort_by, ascending=ascending) \
+             if sort_by is not None else box_df.sort_values(by='q_50', ascending=ascending)
+    
+    # creating the bokeh source obj
     source = ColumnDataSource(box_df)
     
-    #creating the canvas
-    p = figure(plot_height=400, x_range=box_df.classes.unique(), 
-               title=x+" vs "+y, x_axis_label=x,
-               y_axis_label=y)
+    # creating the figure
+    title = f"Distribution of {y} by {x}" if title is None else title
+    xlabel = x if xlabel is None else xlabel
+    ylabel = y if ylabel is None else ylabel
     
-    #stems
-    p.segment(x0='classes', y0='lower', x1='classes', y1='q_25', 
-              line_color='black', source=source, name='seg')
-    p.segment(x0='classes', y0='upper', x1='classes', y1='q_75', 
-              line_color='black', source=source, name='seg')
+    fig = figure(x_range=box_df.classes.unique(), title=title, 
+                 x_axis_label=xlabel, y_axis_label=ylabel, height=height,
+                 **fig_kwargs)
     
-    #boxes
-    boxes = p.vbar(x='classes', bottom='q_25', top='q_75', width=0.7, 
-                   line_color='black',color='color', source=source, name='box',
-                   hover_fill_color='maroon')
+    # box color specs based on dark or light background
+    line_color = curdoc().theme._json['attrs']['Axis']['major_tick_line_color']
     
-    #add hover to show the mean value
-    p.add_tools(HoverTool(renderers=[boxes], tooltips=[('Mean', '@q_50{0,0}')], 
-                          names=['box'], point_policy='snap_to_data'))
-    #means
-    p.rect(x='classes', y='q_50', width=0.7, height=0.02, 
-           source=source, color='black', name='mean')
+    # stems
+    fig.segment(x0='classes', y0='lower', x1='classes', y1='q_25', 
+              line_color=line_color, source=source, name='seg')
+    fig.segment(x0='classes', y0='upper', x1='classes', y1='q_75', 
+              line_color=line_color, source=source, name='seg')
     
-    #whiskers
-    p.rect(x='classes', y='lower', width=0.2, height=0.01, 
-           line_color='black', source=source, name='rect')
-    p.rect(x='classes', y='upper', width=0.2, height=0.01, 
-           line_color='black', source=source, name='rect')
+    # boxes
+    boxes = fig.vbar(x='classes', bottom='q_25', top='q_75', width=0.7, 
+                     line_color=line_color, color='color', source=source, 
+                     name='box',hover_fill_color='maroon')
+    
+    # means
+    means = fig.rect(x='classes', y='q_50', width=0.7, height=0.02, 
+                     source=source, color=line_color, name='mean',
+                     hover_fill_color='blue')
+    
+    # add hover to show the mean value
+    fig.add_tools(HoverTool(renderers=[boxes], 
+                            tooltips=[('Mean', f'@q_50{{{hover_mean_format}}}')], 
+                            names=['box'], point_policy='snap_to_data'))
+    
+    # whiskers
+    fig.rect(x='classes', y='lower', width=0.2, height=0.01, 
+           line_color=line_color, source=source, name='rect')
+    fig.rect(x='classes', y='upper', width=0.2, height=0.01, 
+           line_color=line_color, source=source, name='rect')
     
     source2 = ColumnDataSource(data={'outx':outx, 'outy':outy})
     
-    #outliers
+    # outliers
     if not out.empty:
-        plot_out = p.circle(x='outx', y='outy', size=9, source=source2,
-                            color='grey', fill_alpha=0.6, name='outl',
-                            hover_fill_color='maroon', hover_line_color='maroon')
-        p.add_tools(HoverTool(renderers=[plot_out], tooltips=[(y,'@outy')],
-                              names=['outl'], point_policy='snap_to_data'))
+        plot_out = fig.circle(x='outx', y='outy', size=6, source=source2,
+            color='grey', fill_alpha=0.3, name='outl', legend_label='outliers',
+            hover_fill_color='maroon', hover_line_color='maroon')
+        
+        plot_out.visible = False
+        fig.add_tools(HoverTool(renderers=[plot_out], tooltips=[(y,'@outy')],
+                                names=['outl'], point_policy='snap_to_data'))
     
-    #figure props
-    p.xgrid.visible = False
-    p.ygrid.visible = False
-    p.yaxis[0].formatter = NumeralTickFormatter(format='0,0')
-
-    show(p)
-
+    # clickable legend
+    fig.legend.click_policy = 'hide'
+    fig.legend.background_fill_alpha=0.75
+    
+    # figure props
+    fig.xgrid.visible = False
+    fig.ygrid.visible = False
+    fig.yaxis[0].formatter = NumeralTickFormatter(format=y_axis_format)
+    
+    # show or return fig
+    if show_figure: show(fig)
+    else: return fig
+    
 
 ### NORMALIZED HISTOGRAM ###
 def density_hist(df : pd.DataFrame, 
@@ -821,7 +884,7 @@ def periodogram(ts: [pd.Series, pd.DataFrame],
     # define pallette
     n_cols = len(temp_df.columns)
     colors = ['purple', 'goldenrod']
-    pallette = Plasma[n_cols] if n_cols > 2 else \
+    pallette = Category20[n_cols] if n_cols > 2 else \
                (colors[0] if n_cols == 1 else colors)
     
     # create the figure
@@ -862,71 +925,7 @@ def periodogram(ts: [pd.Series, pd.DataFrame],
         show(fig)
     else:
         return fig
-    """Plot bokeh periodogram wrapped around scipy.signal.periodogogram.
-    
-    Parameters
-    ----------
-    ts : pd.Series or pd.Dataframe
-        Pandas series or DataFrame with all columns to be plotted.
-    kwargs : key-word args
-        Key-word arguments for plot_bokeh figure.
-    Returns
-    -------
-    None
-    """
-    # convert ts to dataframe if series
-    df = ts.to_frame() if isinstance(ts, pd.Series) else ts
-    
-    # determine sampling frequency
-    sampling_f = pd.Timedelta('365D') / pd.Timedelta('1D')
-    
-    temp_df = pd.DataFrame() # init empty df
-    for col in df.columns:
-        # create periodogram profile(s)
-        frequencies, spectrum = scipy.signal.periodogram(
-            x=df[col],
-            fs=sampling_f,
-            window='boxcar',
-            detrend='linear',
-            scaling='spectrum')
-    
-        if temp_df.empty: temp_df.index = frequencies # add x if not already
-        temp_df[col] = spectrum # add spectrum per column
-    
-    # periodogram nice xticks
-    period_coefs = [1, 2, 4, 6, 12, 26, 52, 104] 
-    periods = ["Annual (1)",
-               "Semiannual (2)",
-               "Quarterly (4)",
-               "Bimonthly (6)",
-               "Monthly (12)",
-               "Biweekly (26)",
-               "Weekly (52)",
-               "Semiweekly (104)"]
-    periods_dct = {coef:period for coef,period in zip(period_coefs, periods)}
-    
-    # define colormap 
-    colormap = 'Plasma' if len(temp_df.columns) > 2 else ['purple', 'goldenrod']
-    
-    # draw the plot
-    a = temp_df.plot_bokeh(
-        kind='step', 
-        x=temp_df.index, 
-        y=list(temp_df.columns), 
-        logx=True,
-        xticks=period_coefs,
-        ylabel='Variance',
-        xlabel='',
-        title='Periodogram',
-        colormap=colormap,
-        show_figure=False,
-        **kwargs)
-    
-    # override xticks with nice values and layout
-    a.xaxis.major_label_overrides = periods_dct
-    a.xaxis.major_label_orientation = np.pi / 6
 
-    show(a)
 
 def correlogram(x: [[], np.array, pd.Series, pd.DataFrame], 
                 lags: int, 
