@@ -1,0 +1,49 @@
+BoxLayoutSample:
+
+<BoxLayoutSample>:
+    orientation: "vertical"
+    
+    Button:
+        text: "Var size"
+        size_hint: .5, .5  
+    
+    Button:
+        text: "Fixed size"
+        size_hint: None, None
+        size: "200dp", "100dp"
+    
+    Button:
+        text: "Fixed height, var length"
+        size_hint: 1, None
+        height: "100dp"
+    
+    Button:
+        text: "Vertically center start"
+        size_hint: None, None
+        size: "200dp", "100dp"
+        pos_hint: {"x": .5} # x, center_y, right / y, center_y, top
+    
+    Button:
+        text: "Right aligned"
+        size_hint: None, None
+        size: "200dp", "100dp"
+        pos_hint: {"right": 1}
+        color: 1, 0, 0, .5
+        
+    Button:
+        text: "Center Aligned"
+        size_hint: None, None
+        size: "200dp", "100dp"
+        pos_hint: {"center_x": .5}
+
+<MainWidget>:
+    Button:
+        text: "Fixed on each device"
+        size: "400dp", "40dp"
+        pos: "100dp", "200dp"
+        color: 0, 0, 1, 1 #r, g, b, alpha
+    Label:
+        text: "Red Label"
+        size: "400dp", "40dp"
+        pos: "200dp", "300dp"
+        color: 1, 0, 0, .5

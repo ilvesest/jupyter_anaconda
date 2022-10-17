@@ -1,0 +1,65 @@
+ButtonWidgets:
+
+<ButtonWidgets>:
+    cols: 3
+    
+    
+    ToggleButton:
+        text: "OFF"
+        on_state: root.on_toggle_button_state(self)
+        size_hint: None, 1
+        width: "100dp"
+    Button:
+        text: "Count"
+        on_press: root.on_button_click_count()
+        disabled: not root.toggle_enabled
+    Label:
+        text: root.counter_text
+        font_name: "fonts/Lcd.ttf"
+        font_size: "100dp"
+        color: 1, 0, 1, 1
+    
+    
+    #Button:
+        #text: "Click here"
+        #on_press: root.on_button_click()
+        #size_hint: None, 1
+        #width: "100dp"
+    #Label:
+        #text: root.label_text
+    
+    
+    Switch:
+        id: my_switch
+        size_hint: None, 1
+        width: "100dp"
+        active: True
+    Slider:
+        id: my_slider
+        min: 0
+        max: 100
+        value: 50
+        orientation: 'horizontal'
+        disabled: not my_switch.active
+    BoxLayout:
+        orientation: "vertical"
+    
+        Label:
+            text: str(int(my_slider.value))
+            font_size: "90dp"
+            color: .25, .75, 1, 1
+        ProgressBar:
+            id: my_bar
+            max: 100
+            value: my_slider.value
+    
+    TextInput:
+        id: my_input
+        size_hint: None, 1
+        width: "100dp"
+        text: "John Doe"
+        multiline: False
+        on_text_validate: root.on_text_validate(self)
+    Label: 
+        text: "Name: " + root.text_input_str
+        font_size: "40dp"

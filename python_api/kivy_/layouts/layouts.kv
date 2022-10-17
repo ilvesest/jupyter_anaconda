@@ -1,0 +1,80 @@
+PageLayoutSamples:
+
+
+<BoxLayoutSamples>:
+    orientation: "horizontal"
+    spacing: "10dp"  # padding around buttons
+    Button:
+        text: "A" 
+    Button:
+        text: "B"
+    BoxLayout:
+        orientation: "vertical"
+        spacing: "10dp" 
+        Button:
+            text: "C"
+        Button:
+            text: "D"
+        Button:
+            text: "E"     
+    Button:
+        text: "F"
+
+
+<AnchorLayoutSamples>:
+	anchor_x: "center" #right, left, center
+	anchor_y: "top" #bottom, top, center
+	BoxLayout:
+    	size_hint: .2, .2
+    	Button:
+    		text: "A"
+    	Button:
+    		text: "B"
+
+    		
+<GridLayoutSamples>:
+    cols: 2
+    Button:
+        text: "Button 1"
+        size_hint_x: None
+        width: 100
+    Button:
+        text: "Button 2"
+    Button:
+        text: "Button 3"
+        size_hint_x: None
+    BoxLayoutSamples:
+    Button:
+        text: "Button 5"
+        size_hint_x: None
+    Button:
+        text: "Button 6"
+
+
+<StackLayoutSamples>:
+    Button:
+        text: "Button 1"
+        size_hint: .2, .2
+        width: 100
+    Button:
+        text: "Button 2"
+        size_hint: .2, .2
+    Button:
+        text: "Button 3"
+        size_hint: .2, .2
+        
+        
+<ScrollViewSamples>:
+    StackLayoutSamples:
+        size_hint: 1, None
+        height: self.minimum_height 
+        
+        #can be number of pixels but its not dynamic as scrollview doesn'text
+        #know the height of the window unless its pulled from self
+        
+        
+<PageLayoutSamples>:
+    BoxLayoutSamples:
+    GridLayoutSamples:
+    StackLayoutSamples:
+    AnchorLayoutSamples:
