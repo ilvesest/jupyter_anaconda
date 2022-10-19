@@ -1,4 +1,4 @@
-Canvas4:
+Canvas6:
 
 #declare some variables
 #:set s dp(150)
@@ -48,3 +48,30 @@ Canvas4:
         Line:
             rectangle: (600, 50, 150, 200) # x,y,w,h
             width: 2
+            
+<Canvas4>:
+    Button:
+        pos: 50, 350
+        text: "Move block"
+        on_press: root.on_button_click()
+        
+
+<Canvas6>:
+    RelativeLayout:
+        canvas:
+            Color:
+                rgb: 0, 0, 1
+            Rectangle:
+                size: self.size 
+    RelativeLayout:
+        canvas:
+            Color:
+                rgb: 1, 1, 1
+            Rectangle:
+                size: self.size
+    RelativeLayout:
+        canvas:
+            Color:
+                rgb: 1, 0, 0
+            Rectangle:
+                size: self.size 
