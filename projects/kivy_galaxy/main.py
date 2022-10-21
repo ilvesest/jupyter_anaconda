@@ -5,77 +5,237 @@ Created on Tue Oct 18 16:51:51 2022
 
 @author: tonu
 """
+from kivy.config import Config
+Config.set('graphics', 'width', '900')
+Config.set('graphics', 'height', '400')
+
+
 
 from kivy.app import App
 from kivy.uix.widget import Widget
-from kivy.properties import NumericProperty
+from kivy.properties import NumericProperty, Clock
 from kivy.graphics.context_instructions import Color
-from kivy.graphics.vertex_instructions import Line
+from kivy.graphics.vertex_instructions import Line, Quad, Triangle
+from kivy.core.window import Window
+from kivy import platform
+import random
 
 
 class MainWidget(Widget):
     
+    from helpers.transforms import transform, transform_2D, \
+        transform_perspective
+    from helpers.user_actions import keyboard_closed, on_keyboard_down, \
+        on_keyboard_up, on_touch_down, on_touch_up
+    
     perspective_point_x = NumericProperty(0)
     perspective_point_y = NumericProperty(0)
     
-    V_LINES_N = 15
-    V_LINES_SPACING = .25 # % in screen width 
+    V_LINES_N = 6
+    V_LINES_SPACING = .2 # % in screen width 
     vertical_lines = []
     
-    H_LINES_N = 10
+    H_LINES_N = 15
     H_LINES_SPACING = .1 # % in screen height 
     horizontal_lines = []
     
+    SPEED = 1
+    current_offset_y = 0
+    current_y_loop = 0
+    
+    SPEED_X = 10
+    current_speed_x = 0
+    current_offset_x = 0
+    
+    N_TILES = 12
+    tiles = [] # list of Quads 
+    tiles_coordinates = []
+    
+    SHIP_WIDTH = .1
+    SHIP_HEIGHT = 0.035
+    SHIP_BASE_Y = 0.04
+    ship = None
+    
     def __init__(self, **kwargs):
         super(MainWidget, self).__init__(**kwargs)
-        #print(f"INIT W: {self.width} H: {self.height}")
+        
         self.init_vertical_lines()
         self.init_horizontal_lines()
+        self.init_tiles()
+        self.init_ship()
+        self.pre_fill_tiles_coordinates()
+        self.generate_tiles_coordinates()
         
-    def on_parent(self, widget, parent):
-        #print(f"ON PARENT W: {self.width} H: {self.height}")
-        pass
-    
-    def on_size(self, *args):
-        # print(f"ON SIZE W: {self.width} H: {self.height}")
-
-        #self.perspective_point_x = self.width / 2
-        #self.perspective_point_y = self.height * 0.75
-        self.update_vertical_lines()
-        self.update_horizontal_lines()
+        if self.is_desktop():
+            self._keyboard = Window.request_keyboard(self.keyboard_closed,self)
+            self._keyboard.bind(on_key_down=self.on_keyboard_down)
+            self._keyboard.bind(on_key_up=self.on_keyboard_up)
         
-        pass
+        Clock.schedule_interval(self.update, 1.0 / 60.0)
+
+        
+    def is_desktop(self):
+        if platform in ('li4nux', 'win', 'macosx'):
+            return True
+        return False
     
-    def on_perspective_point_x(self, widget, value):
-        # print(f"PX: {value}")
-        pass
-
-    def on_perspective_point_y(self, widget, value):
-        # print(f"PY: {value}") 
-        pass
-
+    
+    def init_ship(self):
+        with self.canvas:
+            Color(0, 0, 0)
+            self.ship = Triangle()
+            
+    
+    def update_ship(self):
+        
+        ship_half_width = self.SHIP_WIDTH * self.width /2
+        
+        x2_ = self.width/2
+        x1_ = x2_ - ship_half_width
+        x3_ = x2_ + ship_half_width
+        
+        y1_ = self.SHIP_BASE_Y * self.height 
+        y3_ = y1_
+        y2_ = y1_ + self.SHIP_HEIGHT * self.height
+        
+        x1, y1 = self.transform(x1_, y1_)
+        x2, y2 = self.transform(x2_, y2_)
+        x3, y3 = self.transform(x3_, y3_)
+        
+        self.ship.points = [x1, y1, x2, y2, x3, y3]
+    
+    
+    def init_tiles(self):    
+        with self.canvas:
+            Color(1, 1, 1) #white
+            
+            for i in range(self.N_TILES):
+                self.tiles.append(Quad())
+    
+    
+    def pre_fill_tiles_coordinates(self):
+        self.tiles_coordinates = [(0, i) for i in range(10)]
+    
+    
+    def generate_tiles_coordinates(self):
+        
+        last_x = 0
+        last_y = 0
+        
+        start_line_x = -int(self.V_LINES_N/2) + 1
+        end_line_x = start_line_x + self.V_LINES_N - 1
+        
+        rand_int = None
+        
+        #clean coordinates thself.init_ship()at are out of the screen
+        #loop from the end of the tile coordinates
+        for i in range(len(self.tiles_coordinates)-1, -1, -1):
+            
+            if self.tiles_coordinates[i][1] < self.current_y_loop:
+                del self.tiles_coordinates[i]
+        
+        if len(self.tiles_coordinates) > 0:
+            last_coordinates = self.tiles_coordinates[-1]
+            last_x = last_coordinates[0]
+            last_y = last_coordinates[1] + 1
+        
+        #fill tile coordinates to saisfy N_TILES requirement
+        for i in range(len(self.tiles_coordinates), self.N_TILES):
+            
+            if last_x == start_line_x:
+                rand_int = random.randint(0, 1)
+            elif last_x == end_line_x - 1:
+                rand_int = random.choice([0, 2]) 
+            else:
+                rand_int = random.randint(0, 2)
+            # 0 -> stright #, 
+            
+                          #
+            # 1 -> right ##, 
+            
+                        #
+            # 2 -> left ##
+            
+            # forward tile always
+            self.tiles_coordinates.append((last_x, last_y))
+            
+            if rand_int == 1:
+                last_x += 1
+                self.tiles_coordinates.append((last_x, last_y))
+                last_y += 1
+                self.tiles_coordinates.append((last_x, last_y))
+                
+            elif rand_int == 2:
+                last_x -= 1
+                self.tiles_coordinates.append((last_x, last_y))
+                last_y += 1
+                self.tiles_coordinates.append((last_x, last_y))
+            
+            last_y += 1
+    
+    
     def init_vertical_lines(self):    
         with self.canvas:
             Color(1, 1, 1) #white
             #self.line = Line(points=[100, 0, 100, 100])
             for i in range(self.V_LINES_N):
                 self.vertical_lines.append(Line())
+    
             
-            
-    def update_vertical_lines(self):
+    def get_line_x_from_index(self, index):
         
-        central_line_x = int(self.width / 2)
+        central_line_x = self.perspective_point_x
         spacing = self.V_LINES_SPACING * self.width
-        offset = -int(self.V_LINES_N/2) + 0.5 # = 3
+        offset = index - 0.5
         
-        for i in range(self.V_LINES_N):
-            line_x = int(central_line_x + offset * spacing)
+        line_x = central_line_x + offset*spacing + self.current_offset_x
+        return line_x
+    
+    
+    def get_line_y_from_index(self, index):
+        
+        spacing_y = self.H_LINES_SPACING * self.height
+        
+        line_y = index*spacing_y - self.current_offset_y
+        return line_y 
+    
+    
+    def get_tile_coordinates(self, ti_x, ti_y):
+        ti_y = ti_y - self.current_y_loop
+        x = self.get_line_x_from_index(ti_x)
+        y = self.get_line_y_from_index(ti_y)
+        #print(f"x: {x}, y: {y}")
+        return x, y
+    
+    
+    def update_tiles(self):
+        self.SHIP_WIDTH/2
+        for i in range(self.N_TILES):
+            ti_x = self.tiles_coordinates[i][0] 
+            ti_y = self.tiles_coordinates[i][1]
+            
+            xmin, ymin = self.get_tile_coordinates(ti_x, ti_y)
+            xmax, ymax = self.get_tile_coordinates(ti_x+1, ti_y+1)
+            
+            x1, y1 = self.transform(xmin, ymin)
+            x2, y2 = self.transform(xmin, ymax)
+            x3, y3 = self.transform(xmax, ymax)
+            x4, y4 = self.transform(xmax, ymin)
+            
+            tile = self.tiles[i]
+            tile.points = [x1, y1, x2, y2, x3, y3, x4, y4]
+        
+    
+    def update_vertical_lines(self):
+
+        start_index = -int(self.V_LINES_N/2) + 1
+        for i in range(start_index, start_index + self.V_LINES_N):
+            line_x = self.get_line_x_from_index(i)
             
             x1, y1 = self.transform(line_x, 0)
             x2, y2 = self.transform(line_x, self.height)
             
             self.vertical_lines[i].points = [x1, y1, x2, y2]
-            offset += 1
             
     
     def init_horizontal_lines(self):    
@@ -83,51 +243,54 @@ class MainWidget(Widget):
             Color(1, 1, 1) #white
             for i in range(self.H_LINES_N):
                 self.horizontal_lines.append(Line())
-            
-            
+               
+    
     def update_horizontal_lines(self):
         
-        central_line_x = int(self.width / 2)
-        spacing = self.V_LINES_SPACING * self.width
-        offset = -int(self.V_LINES_N/2) + 0.5 # = 3
+        start_index = -int(self.V_LINES_N/2) + 1
+        end_index = start_index + self.V_LINES_N - 1
         
-        xmin = central_line_x + offset * spacing
-        xmax = central_line_x - offset * spacing
-        spacing_y = self.H_LINES_SPACING * self.height
+        xmin = self.get_line_x_from_index(start_index)
+        xmax = self.get_line_x_from_index(end_index)
         
-        for i in range(self.H_LINES_N):6
-            line_y = i * spacing_y
+        for i in range(0, self.H_LINES_N):
+            line_y = self.get_line_y_from_index(i)
             
             x1, y1 = self.transform(xmin, line_y)
             x2, y2 = self.transform(xmax, line_y)
             
             self.horizontal_lines[i].points = [x1, y1, x2, y2]
-            
-    """Transforming from 2D view to perspective view"""
-    def transform(self, x, y):
-        #return self.transform_2D(x, y) # logic is done in 2D
-        return self.transform_perspective(x, y)
     
-    def transform_2D(self, x , y):
-        return int(x), int(y)
     
-    def transform_perspective(self, x , y):
+    """Update clock schedule with delta time variable imitate forward 
+    movement."""
+    def update(self, dt):
         
-        #transform y coordinate of the line
-        y_lin = y * self.perspective_point_y / self.height
-        if y_lin > self.perspective_point_y:
-            y_lin = self.perspective_point_y
+        time_factor = dt*60
         
-        x_diff = x - self.perspective_point_x
-        y_diff = self.perspective_point_y - y_lin
-        factor_y = y_diff / self.perspective_point_y
-        factor_y = factor_y ** 4 # to emphasize 3D view
+        # even though 'update' funtion should call itself 60 tps ion reality
+        # it will vary, since the game dynamics change becasue of that we need
+        # to correct the progression of the game with the time variation 
+        # 'time_factor'
         
-        x_t = self.perspective_point_x + (x_diff * factor_y)
-        y_t = (1 - factor_y) * self.perspective_point_y
         
-        return int(x_t), int(y_t)
-    
+        self.update_vertical_lines()
+        self.update_horizontal_lines()
+        self.update_tiles()
+        self.update_ship()
+        
+        self.current_offset_y += self.SPEED * time_factor
+        
+        spacing_y = self.H_LINES_SPACING * self.height
+        #if the offset equals horizontal lien spacing reset to initial pos
+        if self.current_offset_y >= spacing_y:
+            self.current_offset_y -= spacing_y
+            self.current_y_loop += 1
+            self.generate_tiles_coordinates()
+        
+        self.current_offset_x += self.current_speed_x * time_factor    
+        
+        
 class GalaxyApp(App):
     pass
 
