@@ -30,7 +30,7 @@ import random
 
 
 #tell kivy to read helpers.menu.kv file
-Builder.load_file("helpers/menu.kv")
+Builder.load_file("menu.kv")
 
 class MainWidget(RelativeLayout):
     
